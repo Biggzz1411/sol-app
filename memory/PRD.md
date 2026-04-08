@@ -1,72 +1,77 @@
 # Solana Sniper Bot - Mobile App
 
 ## Overview
-Mobile app conversion of a Solana meme coin sniper bot CLI tool. Built with Expo (React Native) frontend and FastAPI backend with MongoDB. Features an alien-themed dark UI with black & purple design.
-
-## Current Status
-- **Blockchain Integration**: SIMULATED (mock data) — wallet config screen ready for Helius RPC integration later
-- **Trading**: Paper mode with simulated token detections and portfolio tracking
+Full-featured Solana meme coin sniper bot mobile app with real blockchain integration, premium subscription tiers, and multi-wallet support. Built with Expo (React Native) + FastAPI + MongoDB.
 
 ## Features
+
+### Auth System (JWT)
+- Email/password registration & login
+- Bcrypt password hashing, brute force protection
+- Guest mode for unauthenticated browsing
+- Admin account seeded on startup
+
+### Real Solana RPC (Helius)
+- **LIVE** on-chain safety audits via `/api/safety/real/{mint}`
+- Real wallet balance checking
+- Real mint/freeze authority verification
+- Real top holder concentration analysis
+- Token supply and decimals from chain
+
+### Premium Subscription (Stripe)
+- **Monthly**: $29/mo (30 days)
+- **Quarterly**: $69 (90 days, 20% savings)
+- Stripe Checkout integration with payment status polling
+- Webhook support for payment confirmation
+
+### Free vs Premium Tiers
+| Feature | Free | Premium |
+|---------|------|---------|
+| Wallets | 1 | 10 |
+| Scan Interval | 30s | 5s |
+| Trading Mode | Paper Only | Paper + Live |
+| Push Alerts | No | Yes |
+| Max Positions | 2 | 20 |
+
+### Multi-Wallet (Premium)
+- Add up to 10 Solana wallets
+- Private key validation via solders
+- Real SOL balance fetching per wallet
+- Set primary wallet for trading
+- Keys masked in API responses
+
 ### Dashboard (HQ)
-- Bot start/stop reactor button with glow animation
-- Paper/Live mode toggle
-- Stats grid: Scanned, Sniped, Open, Closed positions
-- Wallet balance display
-- Status indicators (scanner, trading mode, platforms)
+- Bot start/stop with glow animation
+- Paper/Live mode toggle (live requires premium)
+- Stats grid, wallet balance, status indicators
+- User email, PRO badge, logout
 
-### Scanner Feed
-- Live token detection feed (simulated)
-- Platform badges (pump.fun, raydium, pumpswap)
-- Safety score display with pass/reject status
-- Simulate detection button
-- Token safety audit detail view with 7-point checklist
-
-### Portfolio & P&L
-- Realized/unrealized P&L display
-- Open/Closed position tabs
-- Position cards with close button
-- Win rate and stats
-
-### Bot Configuration
-- **Wallet & RPC**: Private key input (masked), Helius RPC URL, WebSocket URL
-- Strategy presets: Aggressive, Balanced, Safe
-- Buy settings: Amount, slippage, priority fee, Jito tip, max positions
-- Sell settings: Auto-sell, TP1/TP2, stop loss, trailing stop, max hold time
-- Safety filters: Mint/freeze/update revoked, LP burned, bundle rejection, holder limits
-- Platform toggles: Pump.fun, Raydium, PumpSwap
-
-### Activity Logs
-- Terminal-style log viewer with color-coded entries
-- Auto-scroll to latest entries
-- Clear logs button
-
-## Tech Stack
-- **Frontend**: Expo SDK 54, React Native, expo-router, lucide-react-native
-- **Backend**: FastAPI, Motor (async MongoDB), Pydantic
-- **Database**: MongoDB
-- **Design**: Alien Tech Void theme (#030206 bg, #9D4CDD primary, #39FF14 success)
+### Scanner, Portfolio, Config, Logs
+- All original features from MVP preserved
+- Simulated token detections + real safety audits
+- Full bot configuration with wallet/RPC settings
+- Terminal-style activity log
 
 ## API Endpoints
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | /api/health | Health check |
-| GET/PUT | /api/bot/state | Bot running state |
-| GET/PUT | /api/bot/config | Full bot configuration |
-| GET | /api/scanner/feed | Token detections |
-| POST | /api/scanner/simulate | Generate simulated detection |
-| GET | /api/portfolio | Positions & P&L stats |
-| POST | /api/portfolio/close/:id | Close a position |
-| GET | /api/safety/:mint | Safety audit for token |
-| GET/PUT | /api/wallet/config | Wallet & RPC configuration |
-| DELETE | /api/wallet/config/key | Clear private key |
-| GET | /api/wallet | Wallet info |
-| GET | /api/stats | Dashboard stats |
-| GET/DELETE | /api/logs | Activity logs |
-| POST | /api/reset | Reset all data |
+| Endpoint | Description |
+|----------|-------------|
+| POST /api/auth/register | Create account |
+| POST /api/auth/login | Login |
+| GET /api/auth/me | Current user + premium status |
+| GET /api/premium/plans | Subscription plans |
+| POST /api/premium/checkout | Create Stripe session |
+| GET /api/premium/status/:id | Poll payment |
+| GET /api/safety/real/:mint | Real on-chain audit |
+| GET/POST/DELETE /api/wallets | Multi-wallet CRUD |
+| GET/PUT /api/bot/state | Bot control |
+| GET/PUT /api/bot/config | Bot settings |
+| GET /api/scanner/feed | Token detections |
+| POST /api/scanner/simulate | Simulate detection |
+| GET /api/portfolio | Positions & P&L |
 
-## Next Steps
-- Wire up real Solana RPC via Helius for live blockchain data
-- Real token scanning from on-chain program logs
-- Real safety audits (mint authority, freeze authority checks)
-- Jupiter API swap integration for live trading
+## Tech Stack
+- Frontend: Expo SDK 54, React Native, expo-router
+- Backend: FastAPI, Motor, bcrypt, PyJWT, httpx, solders
+- Database: MongoDB
+- Payments: Stripe (emergentintegrations)
+- Blockchain: Helius RPC (Solana mainnet)
