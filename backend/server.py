@@ -470,15 +470,72 @@ async def clear_logs():
 
 # ── Wallet ──────────────────────────────────────
 
+class WalletConfig(BaseModel):
+    private_key: str = ""
+    rpc_url: str = "https://mainnet.helius-rpc.com/?api-key=YOUR_API_KEY"
+    wss_url: str = "wss://mainnet.helius-rpc.com/?api-key=YOUR_API_KEY"
+
+class WalletConfigUpdate(BaseModel):
+    private_key: Optional[str] = None
+    rpc_url: Optional[str] = None
+    wss_url: Optional[str] = None
+
 @api_router.get("/wallet")
 async def get_wallet():
     state = await db.bot_state.find_one({}, {"_id": 0})
     mode = state.get("mode", "paper") if state else "paper"
+    wallet_cfg = await db.wallet_config.find_one({}, {"_id": 0})
+    has_key = bool(wallet_cfg and wallet_cfg.get("private_key"))
     return {
-        "address": "PAPER_" + "".join(random.choices(string.ascii_letters, k=32)) if mode == "paper" else "Not connected",
+        "address": "PAPER_" + "".join(random.choices(string.ascii_letters, k=32)) if mode == "paper" else ("Configured" if has_key else "Not connected"),
         "balance_sol": round(random.uniform(0.5, 10.0), 4) if mode == "paper" else 0,
         "mode": mode,
+        "has_private_key": has_key,
+        "has_rpc_url": bool(wallet_cfg and wallet_cfg.get("rpc_url") and "YOUR_API_KEY" not in wallet_cfg.get("rpc_url", "")),
     }
+
+@api_router.get("/wallet/config")
+async def get_wallet_config():
+    cfg = await db.wallet_config.find_one({}, {"_id": 0})
+    if not cfg:
+        cfg = WalletConfig().model_dump()
+    if cfg.get("private_key"):
+        pk = cfg["private_key"]
+        cfg["private_key_masked"] = pk[:4] + "..." + pk[-4:] if len(pk) > 8 else "****"
+        cfg["has_private_key"] = True
+    else:
+        cfg["private_key_masked"] = ""
+        cfg["has_private_key"] = False
+    cfg.pop("private_key", None)
+    return cfg
+
+@api_router.put("/wallet/config")
+async def update_wallet_config(update: WalletConfigUpdate):
+    current = await db.wallet_config.find_one({}, {"_id": 0})
+    if not current:
+        current = WalletConfig().model_dump()
+    updates = {k: v for k, v in update.model_dump().items() if v is not None}
+    current.update(updates)
+    await db.wallet_config.replace_one({}, current, upsert=True)
+    await add_log("info", f"Wallet config updated: {[k for k in updates.keys() if k != 'private_key']}")
+    result = dict(current)
+    if result.get("private_key"):
+        pk = result["private_key"]
+        result["private_key_masked"] = pk[:4] + "..." + pk[-4:] if len(pk) > 8 else "****"
+        result["has_private_key"] = True
+    else:
+        result["private_key_masked"] = ""
+        result["has_private_key"] = False
+    result.pop("private_key", None)
+    if "_id" in result:
+        del result["_id"]
+    return result
+
+@api_router.delete("/wallet/config/key")
+async def clear_private_key():
+    await db.wallet_config.update_one({}, {"$set": {"private_key": ""}}, upsert=True)
+    await add_log("warn", "Private key cleared from wallet config")
+    return {"message": "Private key cleared"}
 
 # ── Stats ───────────────────────────────────────
 

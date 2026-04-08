@@ -7,7 +7,7 @@ import requests
 import os
 import time
 
-BASE_URL = os.environ.get('EXPO_PUBLIC_BACKEND_URL').rstrip('/')
+BASE_URL = os.environ.get('EXPO_PUBLIC_BACKEND_URL', 'https://app-builder-4154.preview.emergentagent.com').rstrip('/')
 
 class TestHealth:
     """Health check endpoint"""

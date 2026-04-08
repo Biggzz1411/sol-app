@@ -6,7 +6,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { Settings, Save, RotateCcw } from 'lucide-react-native';
+import { Settings, Save, RotateCcw, Wallet, Eye, EyeOff, Trash2 } from 'lucide-react-native';
 
 const API = process.env.EXPO_PUBLIC_BACKEND_URL;
 
@@ -27,15 +27,28 @@ const C = {
 
 export default function ConfigScreen() {
   const [config, setConfig] = useState<any>(null);
+  const [walletCfg, setWalletCfg] = useState<any>(null);
+  const [privateKeyInput, setPrivateKeyInput] = useState('');
+  const [rpcInput, setRpcInput] = useState('');
+  const [wssInput, setWssInput] = useState('');
+  const [showKey, setShowKey] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [savingWallet, setSavingWallet] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
   const fetchConfig = useCallback(async () => {
     try {
-      const res = await fetch(`${API}/api/bot/config`);
-      const data = await res.json();
-      setConfig(data);
+      const [cfgRes, walletRes] = await Promise.all([
+        fetch(`${API}/api/bot/config`),
+        fetch(`${API}/api/wallet/config`),
+      ]);
+      const cfgData = await cfgRes.json();
+      const walletData = await walletRes.json();
+      setConfig(cfgData);
+      setWalletCfg(walletData);
+      setRpcInput(walletData.rpc_url || '');
+      setWssInput(walletData.wss_url || '');
     } catch (e) {
       console.error(e);
     } finally {
@@ -64,6 +77,37 @@ export default function ConfigScreen() {
   const resetAll = async () => {
     try {
       await fetch(`${API}/api/reset`, { method: 'POST' });
+      await fetchConfig();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const saveWalletConfig = async () => {
+    setSavingWallet(true);
+    try {
+      const body: any = {};
+      if (privateKeyInput) body.private_key = privateKeyInput;
+      if (rpcInput) body.rpc_url = rpcInput;
+      if (wssInput) body.wss_url = wssInput;
+      const res = await fetch(`${API}/api/wallet/config`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      setWalletCfg(data);
+      setPrivateKeyInput('');
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSavingWallet(false);
+    }
+  };
+
+  const clearKey = async () => {
+    try {
+      await fetch(`${API}/api/wallet/config/key`, { method: 'DELETE' });
       await fetchConfig();
     } catch (e) {
       console.error(e);
@@ -117,6 +161,85 @@ export default function ConfigScreen() {
             <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchConfig(); }} tintColor={C.primary} />
           }
         >
+          {/* Wallet & RPC Config */}
+          <Text style={styles.sectionTitle}>WALLET & RPC</Text>
+          <View style={styles.card}>
+            {/* Private Key */}
+            <View style={styles.walletRow}>
+              <View style={styles.walletLabelRow}>
+                <Wallet color={C.primary} size={16} />
+                <Text style={styles.inputLabel}>Private Key</Text>
+              </View>
+              {walletCfg?.has_private_key ? (
+                <View style={styles.keyStatus}>
+                  <View style={styles.keyMaskedRow}>
+                    <View style={[styles.keyDot, { backgroundColor: C.success }]} />
+                    <Text style={styles.keyMaskedText}>{walletCfg.private_key_masked}</Text>
+                  </View>
+                  <TouchableOpacity testID="clear-private-key-btn" style={styles.clearKeyBtn} onPress={clearKey}>
+                    <Trash2 color={C.danger} size={14} />
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <View style={styles.keyInputRow}>
+                  <TextInput
+                    testID="wallet-private-key-input"
+                    style={styles.textInput}
+                    placeholder="Enter base58 private key..."
+                    placeholderTextColor={C.muted}
+                    value={privateKeyInput}
+                    onChangeText={setPrivateKeyInput}
+                    secureTextEntry={!showKey}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                  <TouchableOpacity testID="toggle-key-visibility" style={styles.eyeBtn} onPress={() => setShowKey(!showKey)}>
+                    {showKey ? <EyeOff color={C.muted} size={16} /> : <Eye color={C.muted} size={16} />}
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+
+            {/* RPC URL */}
+            <View style={styles.walletRow}>
+              <Text style={styles.inputLabel}>Helius RPC URL</Text>
+              <TextInput
+                testID="wallet-rpc-url-input"
+                style={styles.textInput}
+                placeholder="https://mainnet.helius-rpc.com/?api-key=..."
+                placeholderTextColor={C.muted}
+                value={rpcInput}
+                onChangeText={setRpcInput}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+            </View>
+
+            {/* WSS URL */}
+            <View style={styles.walletRow}>
+              <Text style={styles.inputLabel}>WebSocket URL</Text>
+              <TextInput
+                testID="wallet-wss-url-input"
+                style={styles.textInput}
+                placeholder="wss://mainnet.helius-rpc.com/?api-key=..."
+                placeholderTextColor={C.muted}
+                value={wssInput}
+                onChangeText={setWssInput}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+            </View>
+
+            {/* Save Wallet */}
+            <TouchableOpacity testID="save-wallet-config-btn" style={styles.walletSaveBtn} onPress={saveWalletConfig} disabled={savingWallet}>
+              {savingWallet ? (
+                <ActivityIndicator size="small" color={C.success} />
+              ) : (
+                <Text style={styles.walletSaveBtnText}>SAVE WALLET CONFIG</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+
           {/* Strategy */}
           <Text style={styles.sectionTitle}>STRATEGY</Text>
           <View style={styles.segmentRow}>
@@ -304,4 +427,34 @@ const styles = StyleSheet.create({
   toggleLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   toggleLabel: { color: '#A390C2', fontSize: 13 },
   platformDot: { width: 8, height: 8, borderRadius: 4 },
+
+  // Wallet styles
+  walletRow: { paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#1A1025' },
+  walletLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+  keyStatus: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  keyMaskedRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  keyDot: { width: 8, height: 8, borderRadius: 4 },
+  keyMaskedText: {
+    color: '#A390C2', fontSize: 13,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  clearKeyBtn: {
+    width: 32, height: 32, borderRadius: 4, borderWidth: 1, borderColor: '#FF2A2A',
+    backgroundColor: 'rgba(255,42,42,0.1)', justifyContent: 'center', alignItems: 'center',
+  },
+  keyInputRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  eyeBtn: {
+    width: 36, height: 36, borderRadius: 4, borderWidth: 1, borderColor: '#321B4D',
+    backgroundColor: '#1A1025', justifyContent: 'center', alignItems: 'center',
+  },
+  textInput: {
+    flex: 1, height: 40, borderRadius: 4, borderWidth: 1, borderColor: '#321B4D',
+    backgroundColor: '#1A1025', color: '#F4F0FF', paddingHorizontal: 12, fontSize: 12,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  walletSaveBtn: {
+    marginTop: 14, paddingVertical: 12, alignItems: 'center', borderWidth: 1,
+    borderColor: '#39FF14', borderRadius: 4, backgroundColor: 'rgba(57, 255, 20, 0.08)',
+  },
+  walletSaveBtnText: { color: '#39FF14', fontSize: 12, fontWeight: '700', letterSpacing: 2 },
 });
