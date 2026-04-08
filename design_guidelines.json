@@ -1,128 +1,183 @@
 {
-  "project_context": {
-    "domain": "Crypto / Web3 Trading Bot",
-    "theme": "Dark",
-    "archetype": "4 (Swiss & High-Contrast) - Terminal/Control Room Variant",
-    "platform": "React Native (Expo)"
-  },
-  "design_philosophy": {
-    "emotion": "Precision, Speed, Authority, Stealth",
-    "rules": [
-      "Color is function. Monochrome base with high-saturation signal colors (Green/Red) used strictly for profit/loss and active states.",
-      "Dense data correlation over negative space. This is a sniper bot, users want max information density on mobile.",
-      "Optical clarity is paramount. No soft shadows, no glassmorphism. Hard 1px borders and flat surfaces."
-    ]
+  "theme": {
+    "name": "Alien Tech Void",
+    "archetype": "Archetype 7: Electric & Neon (Customized)",
+    "description": "A high-speed, command-center mobile app designed for MEV searchers and crypto snipers. Uses deep void blacks, toxic purples, and acid greens. The UI should feel like illegal, highly-advanced alien technology. No soft shadows, rely on 1px glowing borders."
   },
   "colors": {
-    "background": "#0A0A0C",
-    "surface": "#121216",
-    "surface_highlight": "#1A1A20",
-    "border": "#27272A",
-    "primary": "#00FF66",
-    "danger": "#FF3366",
-    "warning": "#FFB800",
-    "text_primary": "#FFFFFF",
-    "text_secondary": "#A1A1AA",
-    "text_muted": "#52525B",
-    "rules": [
-      "Never use pure black #000000, always use the obsidian base #0A0A0C.",
-      "Primary CTA buttons must be Neon Green (#00FF66) with Black text for maximum visibility.",
-      "Loss/Rug warnings must use Alert Red (#FF3366)."
-    ]
+    "background": "#030206",
+    "surface": "#0D0814",
+    "surfaceHighlight": "#1A1025",
+    "border": "#321B4D",
+    "primary": "#9D4CDD",
+    "primaryGlow": "rgba(157, 76, 221, 0.4)",
+    "success": "#39FF14",
+    "successBackground": "rgba(57, 255, 20, 0.1)",
+    "danger": "#FF2A2A",
+    "dangerBackground": "rgba(255, 42, 42, 0.1)",
+    "warning": "#FFD700",
+    "text": {
+      "primary": "#F4F0FF",
+      "secondary": "#A390C2",
+      "muted": "#5C4A7A",
+      "inverse": "#030206"
+    },
+    "platforms": {
+      "pumpfun": "#39FF14",
+      "raydium": "#5E17EB",
+      "pumpswap": "#FF8C00"
+    }
   },
   "typography": {
-    "headings": {
-      "family": "Chivo",
-      "weights": ["700", "900"],
-      "usage": "Screen titles, primary metrics (e.g., SOL Balance)",
-      "package": "@expo-google-fonts/chivo"
+    "libraries": [
+      "@expo-google-fonts/rajdhani",
+      "@expo-google-fonts/outfit",
+      "@expo-google-fonts/space-mono"
+    ],
+    "families": {
+      "heading": "Rajdhani_700Bold",
+      "body": "Outfit_400Regular",
+      "bodyMedium": "Outfit_500Medium",
+      "mono": "SpaceMono_400Regular"
     },
-    "body": {
-      "family": "IBM Plex Sans",
-      "weights": ["400", "500", "600"],
-      "usage": "General UI text, labels, descriptions",
-      "package": "@expo-google-fonts/ibm-plex-sans"
+    "sizes": {
+      "xs": 10,
+      "sm": 12,
+      "base": 14,
+      "lg": 16,
+      "xl": 20,
+      "2xl": 24,
+      "3xl": 32,
+      "4xl": 40,
+      "5xl": 48
     },
-    "data_logs": {
-      "family": "Space Mono",
-      "weights": ["400", "700"],
-      "usage": "Wallet addresses, token prices, P&L percentages, activity log feeds",
-      "package": "@expo-google-fonts/space-mono"
-    },
-    "scale_mobile": {
-      "h1": 32,
-      "h2": 24,
-      "h3": 20,
-      "body": 16,
-      "small": 14,
-      "tiny": 12,
-      "micro": 10
-    },
-    "rules": [
-      "Use tight letter spacing (tracking) on headings.",
-      "Overlines/Labels must be UPPERCASE + tiny + wide spacing.",
-      "Never use Inter for headings. Forbidden font: Space Grotesk."
-    ]
+    "tracking": {
+      "tight": -0.5,
+      "normal": 0,
+      "wide": 2.0
+    }
   },
-  "spacing_and_layout": {
-    "scale": [4, 8, 12, 16, 24, 32, 48, 64],
-    "screen_padding": 16,
-    "strategy": "The 'Control Room' Grid (Mobile Adaptation)",
-    "rules": [
-      "Use flexDirection: 'row' with flexWrap: 'wrap' for bento-style stats.",
-      "Grid Borders: Expose the skeleton. Use borderWidth: 1 and borderColor: '#27272A' for data cells to look like a terminal.",
-      "No rounded corners greater than 8px. Default to 4px or 0px for a sharp, technical look."
-    ]
+  "spacing": {
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24,
+    "2xl": 32,
+    "3xl": 48
+  },
+  "borders": {
+    "radius": {
+      "none": 0,
+      "sm": 2,
+      "md": 4,
+      "lg": 8,
+      "full": 9999
+    },
+    "width": {
+      "thin": 1,
+      "thick": 2
+    }
   },
   "components": {
-    "cards": {
-      "style": "Flat background (#121216), 1px solid border (#27272A), 4px border radius. NO shadows."
+    "ScreenContainer": {
+      "backgroundColor": "colors.background",
+      "flex": 1
     },
-    "buttons": {
-      "primary": "Background #00FF66, Text #0A0A0C, 4px radius, font Space Mono Bold.",
-      "secondary": "Background transparent, Border 1px #27272A, Text #FFFFFF.",
-      "danger": "Background #FF3366, Text #FFFFFF.",
-      "interaction": "React Native Pressable with scale down to 0.95 or opacity 0.8 on pressIn."
+    "HUDCard": {
+      "backgroundColor": "colors.surface",
+      "borderWidth": 1,
+      "borderColor": "colors.border",
+      "borderRadius": "borders.radius.md",
+      "padding": "spacing.lg"
     },
-    "inputs": {
-      "style": "Background #0A0A0C, Border 1px #27272A, padding 12, Text #FFFFFF. Focus state: borderColor #00FF66."
+    "NeonButton": {
+      "backgroundColor": "colors.primaryGlow",
+      "borderWidth": 1,
+      "borderColor": "colors.primary",
+      "borderRadius": "borders.radius.sm",
+      "paddingVertical": "spacing.md",
+      "paddingHorizontal": "spacing.lg",
+      "alignItems": "center",
+      "justifyContent": "center"
     },
-    "badges": {
-      "style": "Padding 4px 8px, 4px radius, uppercase Space Mono, text size 10. Used for Platform (Pump.fun, Raydium) and Status (Live, Paper)."
+    "TerminalLog": {
+      "backgroundColor": "#000000",
+      "fontFamily": "typography.families.mono",
+      "fontSize": "typography.sizes.xs",
+      "color": "colors.success",
+      "padding": "spacing.md",
+      "borderLeftWidth": 2,
+      "borderColor": "colors.primary"
     },
-    "activity_log": {
-      "style": "Container with #050505 bg, Space Mono text, green for buys, red for sells, white for info. Must look like a CLI terminal output."
+    "ScoreRing": {
+      "description": "Circular SVG progress indicator used in the Safety Audit View. Colored Acid Green if safe (>80), Yellow if warning (50-80), Red if scam (<50)."
+    },
+    "StatBlock": {
+      "labelSize": "typography.sizes.xs",
+      "labelColor": "colors.text.secondary",
+      "labelTracking": "typography.tracking.wide",
+      "valueSize": "typography.sizes.2xl",
+      "valueFamily": "typography.families.heading",
+      "valueColor": "colors.text.primary"
+    }
+  },
+  "screens": {
+    "DashboardHome": {
+      "layout": "Grid of metrics at the top (SOL Balance, Win Rate). A massive centralized start/stop button designed like an alien reactor core. Bot status badge.",
+      "components": ["StatBlock", "ReactorCoreButton", "MiniLogFeed"]
+    },
+    "LiveScannerFeed": {
+      "layout": "Vertical FlatList of incoming tokens. High frequency updates. Each row is a tight, dense card.",
+      "components": ["TokenRow", "PlatformBadge", "PillTags"]
+    },
+    "TokenSafetyAudit": {
+      "layout": "Deep dive into a single token. Massive radial score chart at the top. 7-point checklist below with success/fail icons.",
+      "components": ["ScoreRing", "ChecklistRow", "ContractAddressBlock"]
+    },
+    "PortfolioTracker": {
+      "layout": "Split view: Open Positions (active radar/pulse animations) vs Closed Trades. Massive P&L metric in the header.",
+      "components": ["PositionCard", "PnLHeader", "WinRateChart"]
+    },
+    "BotConfiguration": {
+      "layout": "Form-heavy scrolling view. Alien-styled toggles (track components), custom sliders for slippage, segmented controls for strategy presets.",
+      "components": ["CyberToggle", "NeonSlider", "InputBlock"]
+    },
+    "ActivityLog": {
+      "layout": "Full screen terminal view. Pure black background. Monospace font only. Auto-scrolls to bottom.",
+      "components": ["TerminalLog"]
     }
   },
   "icons": {
-    "library": "@expo/vector-icons",
-    "family": "Feather",
-    "rules": "Use sharp, geometric icons. Avoid soft, rounded icon sets."
+    "library": "lucide-react-native",
+    "strokeWidth": 1.5,
+    "strategy": "Use sharp, geometric icons where possible. Radar, Crosshair, Zap, Activity, ShieldAlert, Cpu."
   },
-  "image_urls": [
+  "media": [
     {
-      "url": "https://static.prod-images.emergentagent.com/jobs/ec0b9149-eae8-4374-92b4-18cf36a1bf99/images/b573971c9098c0d6888f9f949468c993f2cac2433eb3e3fe974f96e17c57da7f.png",
       "category": "hero_background",
-      "description": "Abstract dark mode technology background, deep obsidian black with subtle signal green glowing mesh lines. Perfect for login screen or upper header background with an opacity overlay."
+      "url": "https://static.prod-images.emergentagent.com/jobs/ec0b9149-eae8-4374-92b4-18cf36a1bf99/images/ab6f656988f64646831f93af82a72804abc6e34537a75d52ec9764390975f24f.png",
+      "description": "Used as an absolute-positioned background in the Dashboard header or Configuration screen, with a heavy opacity overlay (e.g., bg-black/80 equivalent in React Native)."
     },
     {
-      "url": "https://images.unsplash.com/photo-1771011726574-60ab6028724a?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2OTV8MHwxfHNlYXJjaHwzfHxkYXJrJTIwdGVjaG5vbG9neSUyMGdyaWQlMjBhYnN0cmFjdHxlbnwwfHx8fDE3NzU2NjM3MjV8MA&ixlib=rb-4.1.0&q=85",
-      "category": "texture",
-      "description": "Dark blue/black grid texture for empty states or dashboard section backgrounds at low opacity (10%)."
+      "category": "bot_avatar",
+      "url": "https://static.prod-images.emergentagent.com/jobs/ec0b9149-eae8-4374-92b4-18cf36a1bf99/images/a4efd58acaa4f91c508626c5500c7c021ca7cd30ed80ffc0725c7a296134b3eb.png",
+      "description": "Used as the core bot identity in the Dashboard reactor button or header."
+    },
+    {
+      "category": "scanner_texture",
+      "url": "https://static.prod-images.emergentagent.com/jobs/ec0b9149-eae8-4374-92b4-18cf36a1bf99/images/fd97da7d3ef42e1d89d8fc9546a1fcd164dc3b128ffd530d1ece6288ea6dc9dd.png",
+      "description": "Subtle dark matter noise texture. Can be used as a tiled ImageBackground for HUD cards with low opacity (0.1)."
     }
   ],
   "accessibility_and_testing": {
-    "testing_attributes": "All interactive and key informational elements MUST include a `testID` prop in React Native (equivalent to data-testid). E.g., `testID=\"sniper-start-button\"`.",
-    "contrast": "Ensure pure white text on the #0A0A0C background for maximum contrast. Neon green must only have dark text overlay."
+    "testing_rule": "Every interactive element (TouchableOpacity, Pressable, Switch, TextInput) MUST include a testID attribute (which maps to data-testid requirement) to facilitate robust automated testing.",
+    "examples": ["testID='dashboard-start-bot-button'", "testID='config-slippage-input'"]
   },
-  "instructions_to_main_agent": [
-    "This is a React Native Expo application. Use standard React Native components (View, Text, Pressable, ScrollView, FlatList) and StyleSheet.create().",
-    "Do NOT use HTML tags (div, span) or Tailwind CSS classes directly unless NativeWind is pre-configured.",
-    "Map the provided color hex codes directly to StyleSheet objects.",
-    "Use @expo-google-fonts for the typography. If loading fonts is complex, fallback to standard system monospace (Platform.select({ ios: 'Courier', android: 'monospace' })).",
-    "Implement the 'Activity Log' as a FlatList that auto-scrolls to the bottom, mimicking a CLI terminal.",
-    "For the bottom tab navigation, keep the background #0A0A0C with a top border of #27272A. Active tab icon should be #00FF66.",
-    "Data density is key. Use small text (12px-14px) in the Scanner and Portfolio views to show more tokens per screen.",
-    "Do NOT wrap this output in markdown when parsing."
-  ]
+  "react_native_rules": {
+    "styling": "MUST use StyleSheet.create(). NO HTML elements (div, span). NO Tailwind classNames.",
+    "layout": "Rely entirely on Flexbox (flexDirection, alignItems, justifyContent).",
+    "shadows": "Use React Native shadow properties (shadowColor, shadowOffset, shadowOpacity, shadowRadius) for iOS, and elevation for Android. Maps to primary or success colors for 'neon glow' effect.",
+    "gradients": "If gradients are needed, use expo-linear-gradient. Colors: ['#0D0814', '#1A1025']."
+  }
 }
