@@ -1,28 +1,36 @@
 # Solana Sniper Bot - Mobile App
 
 ## Overview
-Full-featured Solana meme coin sniper bot mobile app with real blockchain integration, premium subscription tiers, and multi-wallet support. Built with Expo (React Native) + FastAPI + MongoDB.
+Full-featured Solana meme coin sniper bot mobile app with real blockchain integration, SOL payments direct to owner wallet, premium subscription tiers, multi-wallet support, and admin payment wallet management.
+
+## Admin Credentials
+- Email: Superbiggzz1411@gmail.com
+- Password: Biggzz1411!
+- Role: admin (auto-premium, payment wallet management)
+
+## Payment System
+- **SOL Payments (Primary)**: Direct transfer to owner's active payment wallet
+- **Stripe (Coming Soon)**: Placeholder ready, user can plug in their Stripe key later
+- **Pricing**: Monthly 0.2 SOL (~$29) | Quarterly 0.5 SOL (~$69, 17% savings)
+- **On-chain verification**: Helius RPC verifies incoming SOL transfers by matching unique amounts
+
+## Admin Payment Wallet Management
+- Admin can add multiple Solana wallets to receive payments
+- Only one wallet active at a time (receives payments)
+- Can switch active wallet, delete inactive wallets
+- Default wallet: 8YjBBpAg8W3d8Juzrp7Xicga8wLe6sFwPphtswwJxgx9
 
 ## Features
 
 ### Auth System (JWT)
-- Email/password registration & login
-- Bcrypt password hashing, brute force protection
+- Email/password registration & login with bcrypt + brute force protection
 - Guest mode for unauthenticated browsing
-- Admin account seeded on startup
+- Admin auto-premium on startup
 
 ### Real Solana RPC (Helius)
-- **LIVE** on-chain safety audits via `/api/safety/real/{mint}`
+- Live on-chain safety audits (mint/freeze authority, holder concentration)
 - Real wallet balance checking
-- Real mint/freeze authority verification
-- Real top holder concentration analysis
 - Token supply and decimals from chain
-
-### Premium Subscription (Stripe)
-- **Monthly**: $29/mo (30 days)
-- **Quarterly**: $69 (90 days, 20% savings)
-- Stripe Checkout integration with payment status polling
-- Webhook support for payment confirmation
 
 ### Free vs Premium Tiers
 | Feature | Free | Premium |
@@ -34,44 +42,22 @@ Full-featured Solana meme coin sniper bot mobile app with real blockchain integr
 | Max Positions | 2 | 20 |
 
 ### Multi-Wallet (Premium)
-- Add up to 10 Solana wallets
-- Private key validation via solders
+- Up to 10 Solana wallets per user
 - Real SOL balance fetching per wallet
-- Set primary wallet for trading
-- Keys masked in API responses
+- Private key validation via solders
 
-### Dashboard (HQ)
-- Bot start/stop with glow animation
-- Paper/Live mode toggle (live requires premium)
-- Stats grid, wallet balance, status indicators
-- User email, PRO badge, logout
-
-### Scanner, Portfolio, Config, Logs
-- All original features from MVP preserved
-- Simulated token detections + real safety audits
-- Full bot configuration with wallet/RPC settings
-- Terminal-style activity log
-
-## API Endpoints
-| Endpoint | Description |
-|----------|-------------|
-| POST /api/auth/register | Create account |
-| POST /api/auth/login | Login |
-| GET /api/auth/me | Current user + premium status |
-| GET /api/premium/plans | Subscription plans |
-| POST /api/premium/checkout | Create Stripe session |
-| GET /api/premium/status/:id | Poll payment |
-| GET /api/safety/real/:mint | Real on-chain audit |
-| GET/POST/DELETE /api/wallets | Multi-wallet CRUD |
-| GET/PUT /api/bot/state | Bot control |
-| GET/PUT /api/bot/config | Bot settings |
-| GET /api/scanner/feed | Token detections |
-| POST /api/scanner/simulate | Simulate detection |
-| GET /api/portfolio | Positions & P&L |
+### Screens
+1. **Auth** — Login/Register with alien theme + guest skip
+2. **Dashboard (HQ)** — Bot control, stats, wallet balance, PRO badge
+3. **Scanner** — Token detection feed with safety audit drilldown
+4. **Portfolio** — Open/closed positions, P&L tracking
+5. **Premium** — Plan cards, SOL payment flow with copy-to-clipboard, verify button
+6. **Config** — Admin wallet management, bot settings, safety filters, platform toggles
+7. **Logs** — Terminal-style activity log
 
 ## Tech Stack
-- Frontend: Expo SDK 54, React Native, expo-router
+- Frontend: Expo SDK 54, React Native, expo-router, lucide-react-native, expo-clipboard
 - Backend: FastAPI, Motor, bcrypt, PyJWT, httpx, solders
 - Database: MongoDB
-- Payments: Stripe (emergentintegrations)
 - Blockchain: Helius RPC (Solana mainnet)
+- Payments: SOL direct transfer + Stripe (placeholder)
