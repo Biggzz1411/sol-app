@@ -5,7 +5,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { Zap, ZapOff, Activity, TrendingUp, Target, Eye } from 'lucide-react-native';
+import { Zap, ZapOff, Activity, TrendingUp, Target, Eye, LogOut, Crown } from 'lucide-react-native';
+import { useAuth } from '../src/AuthContext';
 
 const API = process.env.EXPO_PUBLIC_BACKEND_URL;
 
@@ -27,6 +28,7 @@ const C = {
 };
 
 export default function Dashboard() {
+  const { user, logout } = useAuth();
   const [state, setState] = useState<any>(null);
   const [stats, setStats] = useState<any>(null);
   const [wallet, setWallet] = useState<any>(null);
@@ -121,16 +123,34 @@ export default function Dashboard() {
       >
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.title}>SOLANA SNIPER</Text>
-          <TouchableOpacity
-            testID="mode-toggle-btn"
-            style={[styles.modeBadge, mode === 'live' ? styles.modeLive : styles.modePaper]}
-            onPress={toggleMode}
-          >
-            <Text style={[styles.modeText, mode === 'live' ? styles.modeTextLive : styles.modeTextPaper]}>
-              {mode === 'paper' ? 'PAPER' : 'LIVE'}
-            </Text>
-          </TouchableOpacity>
+          <View>
+            <Text style={styles.title}>SOLANA SNIPER</Text>
+            {user && (
+              <Text style={styles.userEmail}>{user.email}</Text>
+            )}
+          </View>
+          <View style={styles.headerRight}>
+            {user?.subscription?.status === 'active' && (
+              <View style={styles.premiumBadge}>
+                <Crown color="#FFD700" size={12} />
+                <Text style={styles.premiumText}>PRO</Text>
+              </View>
+            )}
+            <TouchableOpacity
+              testID="mode-toggle-btn"
+              style={[styles.modeBadge, mode === 'live' ? styles.modeLive : styles.modePaper]}
+              onPress={toggleMode}
+            >
+              <Text style={[styles.modeText, mode === 'live' ? styles.modeTextLive : styles.modeTextPaper]}>
+                {mode === 'paper' ? 'PAPER' : 'LIVE'}
+              </Text>
+            </TouchableOpacity>
+            {user && (
+              <TouchableOpacity testID="logout-btn" style={styles.logoutBtn} onPress={logout}>
+                <LogOut color={C.muted} size={18} />
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
 
         {/* Reactor Button */}
@@ -231,7 +251,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingHorizontal: 20, paddingTop: 12, paddingBottom: 8,
   },
-  title: { color: C.text, fontSize: 28, fontWeight: '800', letterSpacing: 2 },
+  title: { color: C.text, fontSize: 24, fontWeight: '800', letterSpacing: 2 },
+  userEmail: { color: C.muted, fontSize: 10, marginTop: 2 },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  premiumBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 8, paddingVertical: 4, borderRadius: 3,
+    borderWidth: 1, borderColor: '#FFD700', backgroundColor: 'rgba(255,215,0,0.1)',
+  },
+  premiumText: { color: '#FFD700', fontSize: 9, fontWeight: '800', letterSpacing: 1 },
+  logoutBtn: {
+    width: 36, height: 36, borderRadius: 4, borderWidth: 1, borderColor: C.border,
+    justifyContent: 'center', alignItems: 'center',
+  },
   modeBadge: {
     paddingHorizontal: 14, paddingVertical: 6, borderRadius: 4, borderWidth: 1,
   },

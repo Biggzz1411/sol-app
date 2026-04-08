@@ -1,6 +1,9 @@
+import React, { useState } from 'react';
 import { Tabs } from 'expo-router';
-import { View, StyleSheet } from 'react-native';
-import { Crosshair, Radar, Briefcase, Settings, Terminal } from 'lucide-react-native';
+import { AuthProvider, useAuth } from '../src/AuthContext';
+import AuthScreen from '../components/AuthScreen';
+import { View, ActivityIndicator, StyleSheet, Text } from 'react-native';
+import { Crosshair, Radar, Briefcase, Settings, Terminal, Crown } from 'lucide-react-native';
 
 const COLORS = {
   bg: '#030206',
@@ -8,11 +11,28 @@ const COLORS = {
   border: '#321B4D',
   primary: '#9D4CDD',
   success: '#39FF14',
+  gold: '#FFD700',
   text: '#F4F0FF',
   muted: '#5C4A7A',
 };
 
-export default function TabLayout() {
+function AppContent() {
+  const { user, loading } = useAuth();
+  const [guestMode, setGuestMode] = useState(false);
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={COLORS.primary} />
+        <Text style={styles.loadingText}>INITIALIZING...</Text>
+      </View>
+    );
+  }
+
+  if (!user && !guestMode) {
+    return <AuthScreen onSkip={() => setGuestMode(true)} />;
+  }
+
   return (
     <Tabs
       screenOptions={{
@@ -57,6 +77,13 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="premium"
+        options={{
+          title: 'Premium',
+          tabBarIcon: ({ color, size }) => <Crown color={color} size={size} strokeWidth={1.5} />,
+        }}
+      />
+      <Tabs.Screen
         name="config"
         options={{
           title: 'Config',
@@ -73,3 +100,26 @@ export default function TabLayout() {
     </Tabs>
   );
 }
+
+export default function TabLayout() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
+  );
+}
+
+const styles = StyleSheet.create({
+  loadingContainer: {
+    flex: 1,
+    backgroundColor: COLORS.bg,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 16,
+  },
+  loadingText: {
+    color: COLORS.muted,
+    fontSize: 12,
+    letterSpacing: 4,
+  },
+});
