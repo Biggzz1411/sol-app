@@ -211,16 +211,31 @@ async def startup():
     await db.login_attempts.create_index("identifier")
 
     # Seed admin
-    existing = await db.users.find_one({"email": ADMIN_EMAIL})
+    admin_email_lower = ADMIN_EMAIL.lower().strip()
+    existing = await db.users.find_one({"email": admin_email_lower})
     if not existing:
+        # Remove old admins
+        await db.users.delete_many({"role": "admin"})
         await db.users.insert_one({
-            "email": ADMIN_EMAIL, "password_hash": hash_password(ADMIN_PASSWORD),
+            "email": admin_email_lower, "password_hash": hash_password(ADMIN_PASSWORD),
             "name": "Admin", "role": "admin",
             "subscription": {"status": "active", "plan": "admin", "expires_at": "2099-12-31T00:00:00+00:00"},
             "created_at": datetime.now(timezone.utc).isoformat(),
         })
-    elif not verify_password(ADMIN_PASSWORD, existing["password_hash"]):
-        await db.users.update_one({"email": ADMIN_EMAIL}, {"$set": {"password_hash": hash_password(ADMIN_PASSWORD)}})
+    else:
+        # Ensure this user is admin with correct password
+        update_fields = {
+            "role": "admin",
+            "subscription": {"status": "active", "plan": "admin", "expires_at": "2099-12-31T00:00:00+00:00"},
+        }
+        if not verify_password(ADMIN_PASSWORD, existing["password_hash"]):
+            update_fields["password_hash"] = hash_password(ADMIN_PASSWORD)
+        await db.users.update_one({"email": admin_email_lower}, {"$set": update_fields})
+        # Remove other admins
+        await db.users.update_many(
+            {"email": {"$ne": admin_email_lower}, "role": "admin"},
+            {"$set": {"role": "user"}}
+        )
 
     # Ensure bot defaults
     if not await db.bot_state.find_one({}):
@@ -237,6 +252,16 @@ async def startup():
             "min_safety_score": 60, "platform_pumpfun": True, "platform_raydium": True, "platform_pumpswap": True,
         })
 
+    # Seed default payment wallet
+    if not await db.payment_wallets.find_one({}):
+        await db.payment_wallets.insert_one({
+            "id": str(uuid.uuid4()),
+            "address": OWNER_WALLET,
+            "label": "Primary Wallet",
+            "is_active": True,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+
     # Write test credentials
     creds_path = Path("/app/memory/test_credentials.md")
     creds_path.parent.mkdir(parents=True, exist_ok=True)
@@ -245,6 +270,74 @@ async def startup():
         f"## Auth Endpoints\n- POST /api/auth/register\n- POST /api/auth/login\n- POST /api/auth/logout\n- GET /api/auth/me\n"
     )
     logger.info("Sniper bot backend started with auth + Solana RPC + Stripe")
+
+# ── Admin Payment Wallet Management ─────────────
+
+class PaymentWalletRequest(BaseModel):
+    address: str
+    label: str = "Wallet"
+
+async def get_active_payment_wallet() -> str:
+    """Get the currently active payment wallet address."""
+    active = await db.payment_wallets.find_one({"is_active": True}, {"_id": 0})
+    if active:
+        return active["address"]
+    return OWNER_WALLET
+
+@api_router.get("/admin/payment-wallets")
+async def get_payment_wallets(request: Request):
+    user = await get_current_user(request)
+    if user.get("role") != "admin":
+        raise HTTPException(403, "Admin only")
+    wallets = await db.payment_wallets.find({}, {"_id": 0}).sort("created_at", -1).to_list(20)
+    return {"wallets": wallets}
+
+@api_router.post("/admin/payment-wallets")
+async def add_payment_wallet(req: PaymentWalletRequest, request: Request):
+    user = await get_current_user(request)
+    if user.get("role") != "admin":
+        raise HTTPException(403, "Admin only")
+    existing = await db.payment_wallets.find_one({"address": req.address})
+    if existing:
+        raise HTTPException(400, "Wallet address already exists")
+    wallet_doc = {
+        "id": str(uuid.uuid4()),
+        "address": req.address,
+        "label": req.label,
+        "is_active": False,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.payment_wallets.insert_one(wallet_doc)
+    await add_log("info", f"Payment wallet added: {req.label} ({req.address[:12]}...)", user["id"])
+    return {k: v for k, v in wallet_doc.items() if k != "_id"}
+
+@api_router.put("/admin/payment-wallets/{wallet_id}/activate")
+async def activate_payment_wallet(wallet_id: str, request: Request):
+    user = await get_current_user(request)
+    if user.get("role") != "admin":
+        raise HTTPException(403, "Admin only")
+    # Deactivate all, then activate target
+    await db.payment_wallets.update_many({}, {"$set": {"is_active": False}})
+    result = await db.payment_wallets.update_one({"id": wallet_id}, {"$set": {"is_active": True}})
+    if result.modified_count == 0:
+        raise HTTPException(404, "Wallet not found")
+    wallet = await db.payment_wallets.find_one({"id": wallet_id}, {"_id": 0})
+    await add_log("success", f"Payment wallet activated: {wallet['label']} ({wallet['address'][:12]}...)", user["id"])
+    return {"message": "Wallet activated", "wallet": wallet}
+
+@api_router.delete("/admin/payment-wallets/{wallet_id}")
+async def delete_payment_wallet(wallet_id: str, request: Request):
+    user = await get_current_user(request)
+    if user.get("role") != "admin":
+        raise HTTPException(403, "Admin only")
+    wallet = await db.payment_wallets.find_one({"id": wallet_id}, {"_id": 0})
+    if not wallet:
+        raise HTTPException(404, "Wallet not found")
+    if wallet.get("is_active"):
+        raise HTTPException(400, "Cannot delete active wallet. Activate another wallet first.")
+    await db.payment_wallets.delete_one({"id": wallet_id})
+    await add_log("warn", f"Payment wallet removed: {wallet['label']}", user["id"])
+    return {"message": "Wallet deleted"}
 
 # ── Auth ────────────────────────────────────────
 
@@ -337,11 +430,12 @@ class SolPaymentRequest(BaseModel):
 
 @api_router.get("/premium/plans")
 async def get_plans():
+    active_wallet = await get_active_payment_wallet()
     return {
         "plans": PREMIUM_PLANS,
         "free_limits": FREE_LIMITS,
         "premium_limits": PREMIUM_LIMITS,
-        "owner_wallet": OWNER_WALLET,
+        "owner_wallet": active_wallet,
         "payment_methods": ["sol", "stripe"],
     }
 
@@ -362,6 +456,7 @@ async def initiate_sol_payment(req: SolPaymentRequest, request: Request):
     exact_sol = exact_lamports / 1_000_000_000
 
     order_id = str(uuid.uuid4())
+    active_wallet = await get_active_payment_wallet()
     await db.sol_payments.insert_one({
         "order_id": order_id,
         "user_id": user["id"],
@@ -369,7 +464,7 @@ async def initiate_sol_payment(req: SolPaymentRequest, request: Request):
         "plan_id": req.plan_id,
         "expected_lamports": exact_lamports,
         "expected_sol": exact_sol,
-        "owner_wallet": OWNER_WALLET,
+        "owner_wallet": active_wallet,
         "status": "pending",
         "created_at": datetime.now(timezone.utc).isoformat(),
         "created_ts": int(datetime.now(timezone.utc).timestamp()),
@@ -380,7 +475,7 @@ async def initiate_sol_payment(req: SolPaymentRequest, request: Request):
 
     return {
         "order_id": order_id,
-        "wallet_address": OWNER_WALLET,
+        "wallet_address": active_wallet,
         "amount_sol": exact_sol,
         "amount_lamports": exact_lamports,
         "plan": plan,

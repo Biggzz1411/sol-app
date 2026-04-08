@@ -6,7 +6,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { Settings, Save, RotateCcw, Wallet, Eye, EyeOff, Trash2 } from 'lucide-react-native';
+import { Settings, Save, RotateCcw, Wallet, Eye, EyeOff, Trash2, CircleDot, Plus } from 'lucide-react-native';
+import { useAuth } from '../src/AuthContext';
 
 const API = process.env.EXPO_PUBLIC_BACKEND_URL;
 
@@ -26,6 +27,8 @@ const C = {
 };
 
 export default function ConfigScreen() {
+  const { user, token } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const [config, setConfig] = useState<any>(null);
   const [walletCfg, setWalletCfg] = useState<any>(null);
   const [privateKeyInput, setPrivateKeyInput] = useState('');
@@ -36,9 +39,15 @@ export default function ConfigScreen() {
   const [saving, setSaving] = useState(false);
   const [savingWallet, setSavingWallet] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  // Admin payment wallets
+  const [paymentWallets, setPaymentWallets] = useState<any[]>([]);
+  const [newPayWalletAddr, setNewPayWalletAddr] = useState('');
+  const [newPayWalletLabel, setNewPayWalletLabel] = useState('');
 
   const fetchConfig = useCallback(async () => {
     try {
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
       const [cfgRes, walletRes] = await Promise.all([
         fetch(`${API}/api/bot/config`),
         fetch(`${API}/api/wallet/config`),
@@ -49,13 +58,23 @@ export default function ConfigScreen() {
       setWalletCfg(walletData);
       setRpcInput(walletData.rpc_url || '');
       setWssInput(walletData.wss_url || '');
+
+      if (isAdmin && token) {
+        const pwRes = await fetch(`${API}/api/admin/payment-wallets`, {
+          headers: { 'Authorization': `Bearer ${token}` },
+        });
+        if (pwRes.ok) {
+          const pwData = await pwRes.json();
+          setPaymentWallets(pwData.wallets || []);
+        }
+      }
     } catch (e) {
       console.error(e);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [token, isAdmin]);
 
   useEffect(() => { fetchConfig(); }, [fetchConfig]);
 
@@ -114,6 +133,48 @@ export default function ConfigScreen() {
     }
   };
 
+  const addPaymentWallet = async () => {
+    if (!newPayWalletAddr.trim() || !token) return;
+    try {
+      await fetch(`${API}/api/admin/payment-wallets`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ address: newPayWalletAddr.trim(), label: newPayWalletLabel.trim() || 'Wallet' }),
+      });
+      setNewPayWalletAddr('');
+      setNewPayWalletLabel('');
+      await fetchConfig();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const activatePaymentWallet = async (walletId: string) => {
+    if (!token) return;
+    try {
+      await fetch(`${API}/api/admin/payment-wallets/${walletId}/activate`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      await fetchConfig();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const deletePaymentWallet = async (walletId: string) => {
+    if (!token) return;
+    try {
+      await fetch(`${API}/api/admin/payment-wallets/${walletId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      await fetchConfig();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   const updateField = (key: string, value: any) => {
     setConfig((prev: any) => ({ ...prev, [key]: value }));
   };
@@ -161,6 +222,69 @@ export default function ConfigScreen() {
             <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchConfig(); }} tintColor={C.primary} />
           }
         >
+          {/* Admin Payment Wallets */}
+          {isAdmin && (
+            <>
+              <Text style={styles.sectionTitle}>PAYMENT WALLETS (ADMIN)</Text>
+              <View style={styles.card}>
+                {paymentWallets.map((w) => (
+                  <View key={w.id} style={styles.payWalletRow}>
+                    <TouchableOpacity
+                      testID={`activate-pay-wallet-${w.id}`}
+                      style={styles.payWalletLeft}
+                      onPress={() => !w.is_active && activatePaymentWallet(w.id)}
+                    >
+                      <CircleDot color={w.is_active ? C.success : C.muted} size={18} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.payWalletLabel}>{w.label}</Text>
+                        <Text style={styles.payWalletAddr} numberOfLines={1}>{w.address}</Text>
+                      </View>
+                    </TouchableOpacity>
+                    {!w.is_active && (
+                      <TouchableOpacity
+                        testID={`delete-pay-wallet-${w.id}`}
+                        style={styles.payDeleteBtn}
+                        onPress={() => deletePaymentWallet(w.id)}
+                      >
+                        <Trash2 color={C.danger} size={14} />
+                      </TouchableOpacity>
+                    )}
+                    {w.is_active && (
+                      <View style={styles.activeBadge}>
+                        <Text style={styles.activeBadgeText}>ACTIVE</Text>
+                      </View>
+                    )}
+                  </View>
+                ))}
+                {/* Add new wallet */}
+                <View style={styles.addPayWalletSection}>
+                  <TextInput
+                    testID="new-pay-wallet-label"
+                    style={styles.payWalletInput}
+                    placeholder="Label (e.g. Business Wallet)"
+                    placeholderTextColor={C.muted}
+                    value={newPayWalletLabel}
+                    onChangeText={setNewPayWalletLabel}
+                  />
+                  <TextInput
+                    testID="new-pay-wallet-address"
+                    style={styles.payWalletInput}
+                    placeholder="Solana wallet address..."
+                    placeholderTextColor={C.muted}
+                    value={newPayWalletAddr}
+                    onChangeText={setNewPayWalletAddr}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                  <TouchableOpacity testID="add-pay-wallet-btn" style={styles.addPayWalletBtn} onPress={addPaymentWallet}>
+                    <Plus color={C.success} size={16} />
+                    <Text style={styles.addPayWalletText}>ADD WALLET</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </>
+          )}
+
           {/* Wallet & RPC Config */}
           <Text style={styles.sectionTitle}>WALLET & RPC</Text>
           <View style={styles.card}>
@@ -457,4 +581,36 @@ const styles = StyleSheet.create({
     borderColor: '#39FF14', borderRadius: 4, backgroundColor: 'rgba(57, 255, 20, 0.08)',
   },
   walletSaveBtnText: { color: '#39FF14', fontSize: 12, fontWeight: '700', letterSpacing: 2 },
+
+  // Admin Payment Wallet styles
+  payWalletRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#1A1025',
+  },
+  payWalletLeft: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 },
+  payWalletLabel: { color: '#F4F0FF', fontSize: 13, fontWeight: '700' },
+  payWalletAddr: {
+    color: '#5C4A7A', fontSize: 10, marginTop: 2,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  payDeleteBtn: {
+    width: 28, height: 28, borderRadius: 4, borderWidth: 1, borderColor: '#FF2A2A',
+    backgroundColor: 'rgba(255,42,42,0.1)', justifyContent: 'center', alignItems: 'center',
+  },
+  activeBadge: {
+    paddingHorizontal: 8, paddingVertical: 3, borderRadius: 3,
+    borderWidth: 1, borderColor: '#39FF14', backgroundColor: 'rgba(57,255,20,0.1)',
+  },
+  activeBadgeText: { color: '#39FF14', fontSize: 8, fontWeight: '800', letterSpacing: 1 },
+  addPayWalletSection: { marginTop: 12, gap: 8 },
+  payWalletInput: {
+    height: 40, borderRadius: 4, borderWidth: 1, borderColor: '#321B4D',
+    backgroundColor: '#1A1025', color: '#F4F0FF', paddingHorizontal: 12, fontSize: 12,
+  },
+  addPayWalletBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    paddingVertical: 12, borderWidth: 1, borderColor: '#39FF14',
+    borderRadius: 4, backgroundColor: 'rgba(57, 255, 20, 0.08)',
+  },
+  addPayWalletText: { color: '#39FF14', fontSize: 11, fontWeight: '700', letterSpacing: 2 },
 });
