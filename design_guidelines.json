@@ -1,0 +1,128 @@
+{
+  "project_context": {
+    "domain": "Crypto / Web3 Trading Bot",
+    "theme": "Dark",
+    "archetype": "4 (Swiss & High-Contrast) - Terminal/Control Room Variant",
+    "platform": "React Native (Expo)"
+  },
+  "design_philosophy": {
+    "emotion": "Precision, Speed, Authority, Stealth",
+    "rules": [
+      "Color is function. Monochrome base with high-saturation signal colors (Green/Red) used strictly for profit/loss and active states.",
+      "Dense data correlation over negative space. This is a sniper bot, users want max information density on mobile.",
+      "Optical clarity is paramount. No soft shadows, no glassmorphism. Hard 1px borders and flat surfaces."
+    ]
+  },
+  "colors": {
+    "background": "#0A0A0C",
+    "surface": "#121216",
+    "surface_highlight": "#1A1A20",
+    "border": "#27272A",
+    "primary": "#00FF66",
+    "danger": "#FF3366",
+    "warning": "#FFB800",
+    "text_primary": "#FFFFFF",
+    "text_secondary": "#A1A1AA",
+    "text_muted": "#52525B",
+    "rules": [
+      "Never use pure black #000000, always use the obsidian base #0A0A0C.",
+      "Primary CTA buttons must be Neon Green (#00FF66) with Black text for maximum visibility.",
+      "Loss/Rug warnings must use Alert Red (#FF3366)."
+    ]
+  },
+  "typography": {
+    "headings": {
+      "family": "Chivo",
+      "weights": ["700", "900"],
+      "usage": "Screen titles, primary metrics (e.g., SOL Balance)",
+      "package": "@expo-google-fonts/chivo"
+    },
+    "body": {
+      "family": "IBM Plex Sans",
+      "weights": ["400", "500", "600"],
+      "usage": "General UI text, labels, descriptions",
+      "package": "@expo-google-fonts/ibm-plex-sans"
+    },
+    "data_logs": {
+      "family": "Space Mono",
+      "weights": ["400", "700"],
+      "usage": "Wallet addresses, token prices, P&L percentages, activity log feeds",
+      "package": "@expo-google-fonts/space-mono"
+    },
+    "scale_mobile": {
+      "h1": 32,
+      "h2": 24,
+      "h3": 20,
+      "body": 16,
+      "small": 14,
+      "tiny": 12,
+      "micro": 10
+    },
+    "rules": [
+      "Use tight letter spacing (tracking) on headings.",
+      "Overlines/Labels must be UPPERCASE + tiny + wide spacing.",
+      "Never use Inter for headings. Forbidden font: Space Grotesk."
+    ]
+  },
+  "spacing_and_layout": {
+    "scale": [4, 8, 12, 16, 24, 32, 48, 64],
+    "screen_padding": 16,
+    "strategy": "The 'Control Room' Grid (Mobile Adaptation)",
+    "rules": [
+      "Use flexDirection: 'row' with flexWrap: 'wrap' for bento-style stats.",
+      "Grid Borders: Expose the skeleton. Use borderWidth: 1 and borderColor: '#27272A' for data cells to look like a terminal.",
+      "No rounded corners greater than 8px. Default to 4px or 0px for a sharp, technical look."
+    ]
+  },
+  "components": {
+    "cards": {
+      "style": "Flat background (#121216), 1px solid border (#27272A), 4px border radius. NO shadows."
+    },
+    "buttons": {
+      "primary": "Background #00FF66, Text #0A0A0C, 4px radius, font Space Mono Bold.",
+      "secondary": "Background transparent, Border 1px #27272A, Text #FFFFFF.",
+      "danger": "Background #FF3366, Text #FFFFFF.",
+      "interaction": "React Native Pressable with scale down to 0.95 or opacity 0.8 on pressIn."
+    },
+    "inputs": {
+      "style": "Background #0A0A0C, Border 1px #27272A, padding 12, Text #FFFFFF. Focus state: borderColor #00FF66."
+    },
+    "badges": {
+      "style": "Padding 4px 8px, 4px radius, uppercase Space Mono, text size 10. Used for Platform (Pump.fun, Raydium) and Status (Live, Paper)."
+    },
+    "activity_log": {
+      "style": "Container with #050505 bg, Space Mono text, green for buys, red for sells, white for info. Must look like a CLI terminal output."
+    }
+  },
+  "icons": {
+    "library": "@expo/vector-icons",
+    "family": "Feather",
+    "rules": "Use sharp, geometric icons. Avoid soft, rounded icon sets."
+  },
+  "image_urls": [
+    {
+      "url": "https://static.prod-images.emergentagent.com/jobs/ec0b9149-eae8-4374-92b4-18cf36a1bf99/images/b573971c9098c0d6888f9f949468c993f2cac2433eb3e3fe974f96e17c57da7f.png",
+      "category": "hero_background",
+      "description": "Abstract dark mode technology background, deep obsidian black with subtle signal green glowing mesh lines. Perfect for login screen or upper header background with an opacity overlay."
+    },
+    {
+      "url": "https://images.unsplash.com/photo-1771011726574-60ab6028724a?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2OTV8MHwxfHNlYXJjaHwzfHxkYXJrJTIwdGVjaG5vbG9neSUyMGdyaWQlMjBhYnN0cmFjdHxlbnwwfHx8fDE3NzU2NjM3MjV8MA&ixlib=rb-4.1.0&q=85",
+      "category": "texture",
+      "description": "Dark blue/black grid texture for empty states or dashboard section backgrounds at low opacity (10%)."
+    }
+  ],
+  "accessibility_and_testing": {
+    "testing_attributes": "All interactive and key informational elements MUST include a `testID` prop in React Native (equivalent to data-testid). E.g., `testID=\"sniper-start-button\"`.",
+    "contrast": "Ensure pure white text on the #0A0A0C background for maximum contrast. Neon green must only have dark text overlay."
+  },
+  "instructions_to_main_agent": [
+    "This is a React Native Expo application. Use standard React Native components (View, Text, Pressable, ScrollView, FlatList) and StyleSheet.create().",
+    "Do NOT use HTML tags (div, span) or Tailwind CSS classes directly unless NativeWind is pre-configured.",
+    "Map the provided color hex codes directly to StyleSheet objects.",
+    "Use @expo-google-fonts for the typography. If loading fonts is complex, fallback to standard system monospace (Platform.select({ ios: 'Courier', android: 'monospace' })).",
+    "Implement the 'Activity Log' as a FlatList that auto-scrolls to the bottom, mimicking a CLI terminal.",
+    "For the bottom tab navigation, keep the background #0A0A0C with a top border of #27272A. Active tab icon should be #00FF66.",
+    "Data density is key. Use small text (12px-14px) in the Scanner and Portfolio views to show more tokens per screen.",
+    "Do NOT wrap this output in markdown when parsing."
+  ]
+}
