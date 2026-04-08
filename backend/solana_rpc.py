@@ -225,3 +225,85 @@ async def derive_public_key(private_key_b58: str) -> Optional[str]:
     except Exception as e:
         logger.error(f"Error deriving public key: {e}")
         return None
+
+
+async def verify_sol_payment(
+    owner_wallet: str,
+    expected_lamports: int,
+    since_timestamp: int,
+    rpc_url: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    Check if the owner wallet received a SOL transfer of the expected amount
+    since the given unix timestamp. Returns the matching transaction or None.
+    """
+    try:
+        sigs = await get_recent_token_signatures(owner_wallet, limit=20, rpc_url=rpc_url)
+        if not sigs:
+            return None
+
+        for sig_info in sigs:
+            block_time = sig_info.get("blockTime", 0)
+            if block_time < since_timestamp:
+                continue
+            if sig_info.get("err"):
+                continue
+
+            sig = sig_info.get("signature")
+            if not sig:
+                continue
+
+            # Get transaction details
+            tx_detail = await rpc_call(
+                "getTransaction",
+                [sig, {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 0}],
+                rpc_url,
+            )
+            if not tx_detail or isinstance(tx_detail, dict) and "error" in tx_detail:
+                continue
+
+            meta = tx_detail.get("meta", {})
+            if not meta:
+                continue
+
+            pre_balances = meta.get("preBalances", [])
+            post_balances = meta.get("postBalances", [])
+            accounts = tx_detail.get("transaction", {}).get("message", {}).get("accountKeys", [])
+
+            # Find the owner wallet index
+            owner_idx = None
+            for i, acc in enumerate(accounts):
+                addr = acc.get("pubkey", acc) if isinstance(acc, dict) else acc
+                if addr == owner_wallet:
+                    owner_idx = i
+                    break
+
+            if owner_idx is None:
+                continue
+
+            # Check if balance increased by the expected amount (with 5% tolerance)
+            if owner_idx < len(pre_balances) and owner_idx < len(post_balances):
+                received = post_balances[owner_idx] - pre_balances[owner_idx]
+                min_expected = int(expected_lamports * 0.95)
+                max_expected = int(expected_lamports * 1.05)
+                if min_expected <= received <= max_expected:
+                    sender = None
+                    for i, acc in enumerate(accounts):
+                        addr = acc.get("pubkey", acc) if isinstance(acc, dict) else acc
+                        if i != owner_idx and i < len(pre_balances) and i < len(post_balances):
+                            if post_balances[i] < pre_balances[i]:
+                                sender = addr
+                                break
+
+                    return {
+                        "signature": sig,
+                        "amount_lamports": received,
+                        "amount_sol": received / 1_000_000_000,
+                        "sender": sender,
+                        "block_time": block_time,
+                    }
+
+        return None
+    except Exception as e:
+        logger.error(f"Error verifying payment: {e}")
+        return None

@@ -14,7 +14,7 @@ from typing import List, Optional, Dict, Any
 
 from solana_rpc import (
     get_sol_balance, check_mint_authority, get_top_holder_concentration,
-    real_safety_audit, derive_public_key, get_rpc_url,
+    real_safety_audit, derive_public_key, get_rpc_url, verify_sol_payment,
 )
 
 mongo_url = os.environ['MONGO_URL']
@@ -30,11 +30,12 @@ JWT_SECRET = os.environ["JWT_SECRET"]
 JWT_ALGORITHM = "HS256"
 ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@sniperbot.io")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "SniperAdmin123!")
+OWNER_WALLET = os.environ.get("OWNER_WALLET", "8YjBBpAg8W3d8Juzrp7Xicga8wLe6sFwPphtswwJxgx9")
 
 # ── Premium Packages ────────────────────────────
 PREMIUM_PLANS = {
-    "monthly": {"price": 29.00, "label": "Premium Monthly", "duration_days": 30},
-    "quarterly": {"price": 69.00, "label": "Premium Quarterly", "duration_days": 90},
+    "monthly": {"price_usd": 29.00, "price_sol": 0.2, "label": "Premium Monthly", "duration_days": 30},
+    "quarterly": {"price_usd": 69.00, "price_sol": 0.5, "label": "Premium Quarterly", "duration_days": 90, "save_pct": 17},
 }
 FREE_LIMITS = {
     "max_wallets": 1,
@@ -329,11 +330,138 @@ async def refresh_token(request: Request, response: Response):
     except jwt.InvalidTokenError:
         raise HTTPException(401, "Invalid token")
 
-# ── Premium / Stripe ────────────────────────────
+# ── Premium Payments (SOL + Stripe) ─────────────
+
+class SolPaymentRequest(BaseModel):
+    plan_id: str
 
 @api_router.get("/premium/plans")
 async def get_plans():
-    return {"plans": PREMIUM_PLANS, "free_limits": FREE_LIMITS, "premium_limits": PREMIUM_LIMITS}
+    return {
+        "plans": PREMIUM_PLANS,
+        "free_limits": FREE_LIMITS,
+        "premium_limits": PREMIUM_LIMITS,
+        "owner_wallet": OWNER_WALLET,
+        "payment_methods": ["sol", "stripe"],
+    }
+
+# ── SOL Payment Flow ────────────────────────────
+
+@api_router.post("/premium/sol/initiate")
+async def initiate_sol_payment(req: SolPaymentRequest, request: Request):
+    """Create a SOL payment order. User sends exact SOL amount to owner wallet."""
+    user = await get_current_user(request)
+    if req.plan_id not in PREMIUM_PLANS:
+        raise HTTPException(400, "Invalid plan")
+    plan = PREMIUM_PLANS[req.plan_id]
+
+    # Add small unique identifier to amount (random lamports suffix)
+    base_lamports = int(plan["price_sol"] * 1_000_000_000)
+    unique_suffix = random.randint(1000, 9999)  # Random 4-digit lamport suffix
+    exact_lamports = base_lamports + unique_suffix
+    exact_sol = exact_lamports / 1_000_000_000
+
+    order_id = str(uuid.uuid4())
+    await db.sol_payments.insert_one({
+        "order_id": order_id,
+        "user_id": user["id"],
+        "email": user.get("email"),
+        "plan_id": req.plan_id,
+        "expected_lamports": exact_lamports,
+        "expected_sol": exact_sol,
+        "owner_wallet": OWNER_WALLET,
+        "status": "pending",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_ts": int(datetime.now(timezone.utc).timestamp()),
+        "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat(),
+    })
+
+    await add_log("info", f"SOL payment initiated: {plan['label']} — {exact_sol} SOL — Order: {order_id[:8]}", user["id"])
+
+    return {
+        "order_id": order_id,
+        "wallet_address": OWNER_WALLET,
+        "amount_sol": exact_sol,
+        "amount_lamports": exact_lamports,
+        "plan": plan,
+        "expires_in_minutes": 30,
+    }
+
+@api_router.post("/premium/sol/verify/{order_id}")
+async def verify_sol_payment_endpoint(order_id: str, request: Request):
+    """Verify on-chain that the SOL payment was received."""
+    user = await get_current_user(request)
+    order = await db.sol_payments.find_one({"order_id": order_id, "user_id": user["id"]})
+    if not order:
+        raise HTTPException(404, "Payment order not found")
+
+    if order.get("status") == "paid":
+        return {"status": "paid", "message": "Already verified"}
+
+    # Check expiry
+    created_ts = order.get("created_ts", 0)
+    if (datetime.now(timezone.utc).timestamp() - created_ts) > 1800:
+        await db.sol_payments.update_one({"order_id": order_id}, {"$set": {"status": "expired"}})
+        return {"status": "expired", "message": "Payment window expired. Please create a new order."}
+
+    # Verify on-chain
+    rpc = get_rpc_url()
+    result = await verify_sol_payment(
+        owner_wallet=OWNER_WALLET,
+        expected_lamports=order["expected_lamports"],
+        since_timestamp=created_ts - 60,  # 1 min buffer
+        rpc_url=rpc,
+    )
+
+    if result:
+        # Payment found on-chain!
+        plan_id = order["plan_id"]
+        plan = PREMIUM_PLANS.get(plan_id, PREMIUM_PLANS["monthly"])
+        expires = datetime.now(timezone.utc) + timedelta(days=plan["duration_days"])
+
+        await db.sol_payments.update_one(
+            {"order_id": order_id},
+            {"$set": {
+                "status": "paid",
+                "tx_signature": result["signature"],
+                "sender": result.get("sender"),
+                "received_lamports": result["amount_lamports"],
+                "paid_at": datetime.now(timezone.utc).isoformat(),
+            }},
+        )
+        await db.users.update_one(
+            {"_id": ObjectId(user["id"])},
+            {"$set": {"subscription": {
+                "status": "active", "plan": plan_id,
+                "expires_at": expires.isoformat(),
+                "payment_method": "sol",
+                "tx_signature": result["signature"],
+            }}},
+        )
+        await add_log("success", f"Premium activated via SOL! TX: {result['signature'][:16]}... — {result['amount_sol']} SOL", user["id"])
+
+        return {
+            "status": "paid",
+            "message": "Payment verified on-chain!",
+            "tx_signature": result["signature"],
+            "amount_sol": result["amount_sol"],
+        }
+    else:
+        return {
+            "status": "pending",
+            "message": "Payment not yet detected. Send the exact amount and try again.",
+            "wallet_address": OWNER_WALLET,
+            "expected_sol": order["expected_sol"],
+        }
+
+@api_router.get("/premium/sol/orders")
+async def get_sol_orders(request: Request):
+    """Get user's SOL payment orders."""
+    user = await get_current_user(request)
+    orders = await db.sol_payments.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1).to_list(20)
+    return {"orders": orders}
+
+# ── Stripe Checkout (ready for when you add your key) ──
 
 @api_router.post("/premium/checkout")
 async def create_checkout(req: CheckoutRequest, request: Request):
@@ -342,17 +470,21 @@ async def create_checkout(req: CheckoutRequest, request: Request):
         raise HTTPException(400, "Invalid plan")
     plan = PREMIUM_PLANS[req.plan_id]
 
+    stripe_key = os.environ.get("STRIPE_API_KEY", "")
+    if not stripe_key or stripe_key == "sk_test_emergent":
+        # Stripe not fully configured yet
+        return {"error": "Stripe payments coming soon. Please use SOL payment.", "use_sol": True}
+
     from emergentintegrations.payments.stripe.checkout import StripeCheckout, CheckoutSessionRequest
-    api_key = os.environ["STRIPE_API_KEY"]
     host_url = str(request.base_url).rstrip("/")
     webhook_url = f"{host_url}/api/webhook/stripe"
-    stripe_checkout = StripeCheckout(api_key=api_key, webhook_url=webhook_url)
+    stripe_checkout = StripeCheckout(api_key=stripe_key, webhook_url=webhook_url)
 
     success_url = f"{req.origin_url}/premium?session_id={{CHECKOUT_SESSION_ID}}"
     cancel_url = f"{req.origin_url}/premium"
 
     checkout_req = CheckoutSessionRequest(
-        amount=plan["price"],
+        amount=plan["price_usd"],
         currency="usd",
         success_url=success_url,
         cancel_url=cancel_url,
@@ -362,7 +494,7 @@ async def create_checkout(req: CheckoutRequest, request: Request):
 
     await db.payment_transactions.insert_one({
         "session_id": session.session_id, "user_id": user["id"], "email": user["email"],
-        "plan_id": req.plan_id, "amount": plan["price"], "currency": "usd",
+        "plan_id": req.plan_id, "amount": plan["price_usd"], "currency": "usd",
         "payment_status": "initiated", "created_at": datetime.now(timezone.utc).isoformat(),
     })
 
@@ -374,43 +506,45 @@ async def check_payment_status(session_id: str, request: Request):
     txn = await db.payment_transactions.find_one({"session_id": session_id, "user_id": user["id"]}, {"_id": 0})
     if not txn:
         raise HTTPException(404, "Transaction not found")
-
     if txn.get("payment_status") == "paid":
         return {"status": "paid", "already_processed": True}
 
+    stripe_key = os.environ.get("STRIPE_API_KEY", "")
+    if not stripe_key or stripe_key == "sk_test_emergent":
+        return {"status": "pending", "message": "Stripe not configured"}
+
     from emergentintegrations.payments.stripe.checkout import StripeCheckout
-    api_key = os.environ["STRIPE_API_KEY"]
     host_url = str(request.base_url).rstrip("/")
-    stripe_checkout = StripeCheckout(api_key=api_key, webhook_url=f"{host_url}/api/webhook/stripe")
+    stripe_checkout = StripeCheckout(api_key=stripe_key, webhook_url=f"{host_url}/api/webhook/stripe")
     status = await stripe_checkout.get_checkout_status(session_id)
 
     if status.payment_status == "paid":
-        already = await db.payment_transactions.find_one({"session_id": session_id, "payment_status": "paid"})
-        if not already:
-            plan_id = txn.get("plan_id", "monthly")
-            plan = PREMIUM_PLANS.get(plan_id, PREMIUM_PLANS["monthly"])
-            expires = datetime.now(timezone.utc) + timedelta(days=plan["duration_days"])
-            await db.payment_transactions.update_one(
-                {"session_id": session_id},
-                {"$set": {"payment_status": "paid", "paid_at": datetime.now(timezone.utc).isoformat()}},
-            )
-            await db.users.update_one(
-                {"_id": ObjectId(user["id"])},
-                {"$set": {"subscription": {"status": "active", "plan": plan_id, "expires_at": expires.isoformat(), "session_id": session_id}}},
-            )
-            await add_log("success", f"Premium activated: {plan['label']}", user["id"])
+        plan_id = txn.get("plan_id", "monthly")
+        plan = PREMIUM_PLANS.get(plan_id, PREMIUM_PLANS["monthly"])
+        expires = datetime.now(timezone.utc) + timedelta(days=plan["duration_days"])
+        await db.payment_transactions.update_one(
+            {"session_id": session_id},
+            {"$set": {"payment_status": "paid", "paid_at": datetime.now(timezone.utc).isoformat()}},
+        )
+        await db.users.update_one(
+            {"_id": ObjectId(user["id"])},
+            {"$set": {"subscription": {"status": "active", "plan": plan_id, "expires_at": expires.isoformat(), "payment_method": "stripe"}}},
+        )
+        await add_log("success", f"Premium activated via Stripe: {plan['label']}", user["id"])
 
-    return {"status": status.status, "payment_status": status.payment_status, "amount": status.amount_total, "currency": status.currency}
+    return {"status": status.status, "payment_status": status.payment_status}
 
 @api_router.post("/webhook/stripe")
 async def stripe_webhook(request: Request):
     body = await request.body()
     sig = request.headers.get("Stripe-Signature", "")
     try:
+        stripe_key = os.environ.get("STRIPE_API_KEY", "")
+        if not stripe_key or stripe_key == "sk_test_emergent":
+            return {"status": "not_configured"}
         from emergentintegrations.payments.stripe.checkout import StripeCheckout
-        api_key = os.environ["STRIPE_API_KEY"]
         host_url = str(request.base_url).rstrip("/")
-        stripe_checkout = StripeCheckout(api_key=api_key, webhook_url=f"{host_url}/api/webhook/stripe")
+        stripe_checkout = StripeCheckout(api_key=stripe_key, webhook_url=f"{host_url}/api/webhook/stripe")
         event = await stripe_checkout.handle_webhook(body, sig)
         if event.payment_status == "paid":
             txn = await db.payment_transactions.find_one({"session_id": event.session_id})
@@ -426,7 +560,7 @@ async def stripe_webhook(request: Request):
                 if user_id:
                     await db.users.update_one(
                         {"_id": ObjectId(user_id)},
-                        {"$set": {"subscription": {"status": "active", "plan": plan_id, "expires_at": expires.isoformat()}}},
+                        {"$set": {"subscription": {"status": "active", "plan": plan_id, "expires_at": expires.isoformat(), "payment_method": "stripe"}}},
                     )
         return {"status": "ok"}
     except Exception as e:
