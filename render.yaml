@@ -1,0 +1,29 @@
+# Render Blueprint - Auto-configures your Solana Sniper Bot
+services:
+  - type: web
+    name: solana-sniper-bot
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn server:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DB_NAME
+        value: sniper_bot
+      - key: MONGO_URL
+        sync: false
+      - key: HELIUS_RPC_URL
+        sync: false
+      - key: TRADING_WALLET_PRIVKEY
+        sync: false
+      - key: OWNER_WALLET
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: PYTHON_VERSION
+        value: "3.11.0"
