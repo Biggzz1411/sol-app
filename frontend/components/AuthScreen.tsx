@@ -20,6 +20,7 @@ export default function AuthScreen({ onSkip }: { onSkip?: () => void }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
+  const [referralCode, setReferralCode] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -33,7 +34,7 @@ export default function AuthScreen({ onSkip }: { onSkip?: () => void }) {
     try {
       const result = isLogin
         ? await login(email.trim(), password)
-        : await register(email.trim(), password, name.trim());
+        : await register(email.trim(), password, name.trim(), referralCode.trim());
       if (!result.success) {
         setError(result.error || 'Something went wrong');
       }
@@ -118,6 +119,22 @@ export default function AuthScreen({ onSkip }: { onSkip?: () => void }) {
                 secureTextEntry
               />
             </View>
+
+            {!isLogin && (
+              <View style={styles.inputRow}>
+                <Zap color={C.muted} size={18} />
+                <TextInput
+                  testID="auth-referral-input"
+                  style={styles.input}
+                  placeholder="Referral code (optional)"
+                  placeholderTextColor={C.muted}
+                  value={referralCode}
+                  onChangeText={setReferralCode}
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                />
+              </View>
+            )}
 
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
 

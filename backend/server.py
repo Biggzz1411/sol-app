@@ -125,6 +125,7 @@ class RegisterRequest(BaseModel):
     email: str
     password: str
     name: str = ""
+    referral_code: Optional[str] = None
 
 class LoginRequest(BaseModel):
     email: str
@@ -175,6 +176,13 @@ class AddWalletRequest(BaseModel):
 class CheckoutRequest(BaseModel):
     plan_id: str
     origin_url: str
+
+# ── Referral Config ─────────────────────────────
+REFERRAL_REWARD_REFERRER_DAYS = 7  # Referrer gets 1 week
+REFERRAL_REWARD_REFEREE_DAYS = 3   # Referee gets 3 days
+
+def generate_referral_code() -> str:
+    return "SNIPE-" + ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
 
 # ── Helpers ─────────────────────────────────────
 
@@ -346,18 +354,78 @@ async def register(req: RegisterRequest, response: Response):
     email = req.email.lower().strip()
     if await db.users.find_one({"email": email}):
         raise HTTPException(400, "Email already registered")
+
+    referral_code = generate_referral_code()
     user_doc = {
         "email": email, "password_hash": hash_password(req.password),
         "name": req.name or email.split("@")[0], "role": "user",
         "subscription": {"status": "free", "plan": "free", "expires_at": None},
+        "referral_code": referral_code,
+        "referred_by": None,
+        "referral_count": 0,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
+
+    # Handle referral
+    if req.referral_code:
+        referrer = await db.users.find_one({"referral_code": req.referral_code.strip().upper()})
+        if referrer:
+            user_doc["referred_by"] = str(referrer["_id"])
+            # Give referee 3 days free premium
+            referee_expires = datetime.now(timezone.utc) + timedelta(days=REFERRAL_REWARD_REFEREE_DAYS)
+            user_doc["subscription"] = {
+                "status": "active", "plan": "referral_bonus",
+                "expires_at": referee_expires.isoformat(),
+                "payment_method": "referral",
+            }
+
     result = await db.users.insert_one(user_doc)
     user_id = str(result.inserted_id)
+
+    # Reward referrer with 7 days
+    if req.referral_code and user_doc.get("referred_by"):
+        referrer_id = user_doc["referred_by"]
+        referrer = await db.users.find_one({"_id": ObjectId(referrer_id)})
+        if referrer:
+            current_sub = referrer.get("subscription", {})
+            current_exp = current_sub.get("expires_at")
+            if current_exp and current_sub.get("status") == "active":
+                try:
+                    base_date = datetime.fromisoformat(current_exp)
+                    new_exp = base_date + timedelta(days=REFERRAL_REWARD_REFERRER_DAYS)
+                except:
+                    new_exp = datetime.now(timezone.utc) + timedelta(days=REFERRAL_REWARD_REFERRER_DAYS)
+            else:
+                new_exp = datetime.now(timezone.utc) + timedelta(days=REFERRAL_REWARD_REFERRER_DAYS)
+
+            await db.users.update_one(
+                {"_id": ObjectId(referrer_id)},
+                {"$set": {"subscription": {
+                    "status": "active", "plan": current_sub.get("plan", "referral_bonus"),
+                    "expires_at": new_exp.isoformat(),
+                    "payment_method": current_sub.get("payment_method", "referral"),
+                }}, "$inc": {"referral_count": 1}},
+            )
+            # Record referral
+            await db.referrals.insert_one({
+                "id": str(uuid.uuid4()),
+                "referrer_id": referrer_id,
+                "referee_id": user_id,
+                "referee_email": email,
+                "referral_code": req.referral_code.strip().upper(),
+                "referrer_reward_days": REFERRAL_REWARD_REFERRER_DAYS,
+                "referee_reward_days": REFERRAL_REWARD_REFEREE_DAYS,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            })
+            await add_log("success", f"Referral reward: +{REFERRAL_REWARD_REFERRER_DAYS} days for referrer", referrer_id)
+
     access = create_access_token(user_id, email)
     refresh = create_refresh_token(user_id)
     set_auth_cookies(response, access, refresh)
-    return {"id": user_id, "email": email, "name": user_doc["name"], "role": "user", "subscription": user_doc["subscription"], "token": access}
+    return {
+        "id": user_id, "email": email, "name": user_doc["name"], "role": "user",
+        "subscription": user_doc["subscription"], "referral_code": referral_code, "token": access,
+    }
 
 @api_router.post("/auth/login")
 async def login(req: LoginRequest, request: Request, response: Response):
@@ -403,6 +471,11 @@ async def get_me(request: Request):
     user = await get_current_user(request)
     user["is_premium"] = is_premium(user)
     user["limits"] = get_limits(user)
+    # Ensure referral code
+    if not user.get("referral_code"):
+        code = generate_referral_code()
+        await db.users.update_one({"_id": ObjectId(user["id"])}, {"$set": {"referral_code": code}})
+        user["referral_code"] = code
     return user
 
 @api_router.post("/auth/refresh")
@@ -422,6 +495,44 @@ async def refresh_token(request: Request, response: Response):
         return {"message": "Token refreshed"}
     except jwt.InvalidTokenError:
         raise HTTPException(401, "Invalid token")
+
+
+# ── Referral System ─────────────────────────────
+
+@api_router.get("/referral/code")
+async def get_referral_code(request: Request):
+    user = await get_current_user(request)
+    # Generate code if user doesn't have one
+    if not user.get("referral_code"):
+        code = generate_referral_code()
+        await db.users.update_one({"_id": ObjectId(user["id"])}, {"$set": {"referral_code": code}})
+        user["referral_code"] = code
+    return {
+        "referral_code": user["referral_code"],
+        "referral_count": user.get("referral_count", 0),
+        "referrer_reward_days": REFERRAL_REWARD_REFERRER_DAYS,
+        "referee_reward_days": REFERRAL_REWARD_REFEREE_DAYS,
+    }
+
+@api_router.get("/referral/stats")
+async def get_referral_stats(request: Request):
+    user = await get_current_user(request)
+    referrals = await db.referrals.find({"referrer_id": user["id"]}, {"_id": 0}).sort("created_at", -1).to_list(50)
+    total_days_earned = sum(r.get("referrer_reward_days", 0) for r in referrals)
+    return {
+        "referral_code": user.get("referral_code", ""),
+        "total_referrals": len(referrals),
+        "total_days_earned": total_days_earned,
+        "referrals": referrals,
+    }
+
+@api_router.get("/referral/validate/{code}")
+async def validate_referral_code(code: str):
+    user = await db.users.find_one({"referral_code": code.strip().upper()})
+    if user:
+        return {"valid": True, "referrer_name": user.get("name", "A sniper")}
+    return {"valid": False}
+
 
 # ── Premium Payments (SOL + Stripe) ─────────────
 
@@ -566,9 +677,8 @@ async def create_checkout(req: CheckoutRequest, request: Request):
     plan = PREMIUM_PLANS[req.plan_id]
 
     stripe_key = os.environ.get("STRIPE_API_KEY", "")
-    if not stripe_key or stripe_key == "sk_test_emergent":
-        # Stripe not fully configured yet
-        return {"error": "Stripe payments coming soon. Please use SOL payment.", "use_sol": True}
+    if not stripe_key:
+        return {"error": "Stripe payments not configured. Please use SOL payment.", "use_sol": True}
 
     from emergentintegrations.payments.stripe.checkout import StripeCheckout, CheckoutSessionRequest
     host_url = str(request.base_url).rstrip("/")
@@ -605,7 +715,7 @@ async def check_payment_status(session_id: str, request: Request):
         return {"status": "paid", "already_processed": True}
 
     stripe_key = os.environ.get("STRIPE_API_KEY", "")
-    if not stripe_key or stripe_key == "sk_test_emergent":
+    if not stripe_key:
         return {"status": "pending", "message": "Stripe not configured"}
 
     from emergentintegrations.payments.stripe.checkout import StripeCheckout
@@ -635,7 +745,7 @@ async def stripe_webhook(request: Request):
     sig = request.headers.get("Stripe-Signature", "")
     try:
         stripe_key = os.environ.get("STRIPE_API_KEY", "")
-        if not stripe_key or stripe_key == "sk_test_emergent":
+        if not stripe_key:
             return {"status": "not_configured"}
         from emergentintegrations.payments.stripe.checkout import StripeCheckout
         host_url = str(request.base_url).rstrip("/")

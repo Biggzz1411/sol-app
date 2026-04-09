@@ -7,7 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useAuth } from '../src/AuthContext';
 import { useLocalSearchParams } from 'expo-router';
-import { Crown, Check, Zap, Shield, Wallet, Bell, Gauge, Copy, RefreshCw, CreditCard } from 'lucide-react-native';
+import { Crown, Check, Zap, Shield, Wallet, Bell, Gauge, Copy, RefreshCw, CreditCard, Users, Share2 } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 
 const API = process.env.EXPO_PUBLIC_BACKEND_URL;
@@ -30,9 +30,12 @@ export default function PremiumScreen() {
   const [initiating, setInitiating] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
+  const [referralData, setReferralData] = useState<any>(null);
+  const [copiedRef, setCopiedRef] = useState(false);
+
   const isPremium = user?.is_premium || user?.subscription?.status === 'active';
 
-  useEffect(() => { fetchPlans(); }, []);
+  useEffect(() => { fetchPlans(); fetchReferral(); }, []);
 
   const fetchPlans = async () => {
     try {
@@ -40,6 +43,24 @@ export default function PremiumScreen() {
       setPlans(await res.json());
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
+  };
+
+  const fetchReferral = async () => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${API}/api/referral/code`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (res.ok) setReferralData(await res.json());
+    } catch (e) { console.error(e); }
+  };
+
+  const copyReferralCode = async () => {
+    if (referralData?.referral_code) {
+      await Clipboard.setStringAsync(referralData.referral_code);
+      setCopiedRef(true);
+      setTimeout(() => setCopiedRef(false), 2000);
+    }
   };
 
   const initiateSolPayment = async (planId: string) => {
@@ -90,6 +111,27 @@ export default function PremiumScreen() {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
+  };
+
+  const handleStripeCheckout = async (planId: string) => {
+    if (!token) return;
+    try {
+      const originUrl = typeof window !== 'undefined' ? window.location.origin : API;
+      const res = await fetch(`${API}/api/premium/checkout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ plan_id: planId, origin_url: originUrl }),
+      });
+      const data = await res.json();
+      if (data.url) {
+        if (Platform.OS === 'web') {
+          (window as any).location.href = data.url;
+        } else {
+          const { Linking } = require('react-native');
+          await Linking.openURL(data.url);
+        }
+      }
+    } catch (e) { console.error(e); }
   };
 
   if (loading) {
@@ -258,16 +300,56 @@ export default function PremiumScreen() {
                   </TouchableOpacity>
                 ))}
 
-                {/* Stripe Coming Soon */}
-                <View style={styles.stripeBanner}>
-                  <CreditCard color={C.muted} size={18} />
+                {/* Stripe Option */}
+                <TouchableOpacity
+                  testID="stripe-pay-btn"
+                  style={styles.stripeBanner}
+                  onPress={() => {
+                    if (plans?.plans?.monthly) {
+                      handleStripeCheckout('monthly');
+                    }
+                  }}
+                >
+                  <CreditCard color={C.textSec} size={18} />
                   <View>
-                    <Text style={styles.stripeTitle}>CARD PAYMENTS</Text>
-                    <Text style={styles.stripeSubtext}>Coming soon via Stripe</Text>
+                    <Text style={styles.stripeTitle}>PAY WITH CARD</Text>
+                    <Text style={styles.stripeSubtext}>Via Stripe — $29/mo or $69/quarter</Text>
                   </View>
-                </View>
+                </TouchableOpacity>
               </>
             )}
+          </>
+        )}
+
+        {/* Referral Program */}
+        {token && referralData && (
+          <>
+            <Text style={styles.sectionTitle}>REFERRAL PROGRAM</Text>
+            <View style={styles.referralCard}>
+              <View style={styles.referralHeader}>
+                <Users color={C.primary} size={20} />
+                <Text style={styles.referralTitle}>SHARE & EARN</Text>
+              </View>
+              <Text style={styles.referralDesc}>
+                You get 7 days free premium for each referral. New users get 3 days free when they use your code.
+              </Text>
+              <Text style={styles.referralLabel}>YOUR CODE</Text>
+              <TouchableOpacity testID="copy-referral-btn" style={styles.referralCodeRow} onPress={copyReferralCode}>
+                <Text style={styles.referralCode}>{referralData.referral_code}</Text>
+                <Copy color={C.muted} size={14} />
+              </TouchableOpacity>
+              {copiedRef && <Text style={styles.copiedRefText}>Copied!</Text>}
+              <View style={styles.referralStats}>
+                <View style={styles.referralStat}>
+                  <Text style={styles.referralStatValue}>{referralData.referral_count || 0}</Text>
+                  <Text style={styles.referralStatLabel}>REFERRALS</Text>
+                </View>
+                <View style={styles.referralStat}>
+                  <Text style={styles.referralStatValue}>{(referralData.referral_count || 0) * 7}d</Text>
+                  <Text style={styles.referralStatLabel}>EARNED</Text>
+                </View>
+              </View>
+            </View>
           </>
         )}
 
@@ -385,9 +467,32 @@ const styles = StyleSheet.create({
   stripeBanner: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
     marginHorizontal: 16, marginTop: 8, padding: 14,
-    backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
-    borderRadius: 6, borderStyle: 'dashed',
+    backgroundColor: C.surface, borderWidth: 1, borderColor: '#635BFF',
+    borderRadius: 6,
   },
-  stripeTitle: { color: C.muted, fontSize: 12, fontWeight: '700', letterSpacing: 1 },
-  stripeSubtext: { color: '#3D2A5F', fontSize: 10 },
+  stripeTitle: { color: '#635BFF', fontSize: 12, fontWeight: '700', letterSpacing: 1 },
+  stripeSubtext: { color: C.muted, fontSize: 10 },
+
+  // Referral
+  referralCard: {
+    marginHorizontal: 16, marginBottom: 16, padding: 20,
+    backgroundColor: C.surface, borderWidth: 1, borderColor: C.primary, borderRadius: 8,
+  },
+  referralHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 },
+  referralTitle: { color: C.primary, fontSize: 16, fontWeight: '800', letterSpacing: 2 },
+  referralDesc: { color: C.textSec, fontSize: 12, lineHeight: 18, marginBottom: 16 },
+  referralLabel: { color: C.muted, fontSize: 9, fontWeight: '700', letterSpacing: 3, marginBottom: 6 },
+  referralCodeRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    backgroundColor: '#1A1025', padding: 14, borderRadius: 4, borderWidth: 1, borderColor: C.border,
+  },
+  referralCode: {
+    color: C.gold, fontSize: 20, fontWeight: '900', letterSpacing: 4,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  copiedRefText: { color: C.success, fontSize: 11, marginTop: 4, textAlign: 'center' },
+  referralStats: { flexDirection: 'row', gap: 16, marginTop: 16 },
+  referralStat: { flex: 1, alignItems: 'center', padding: 12, backgroundColor: '#1A1025', borderRadius: 4 },
+  referralStatValue: { color: C.text, fontSize: 24, fontWeight: '900' },
+  referralStatLabel: { color: C.muted, fontSize: 8, fontWeight: '700', letterSpacing: 2, marginTop: 4 },
 });
