@@ -348,14 +348,14 @@ async def startup():
         await db.users.insert_one({
             "email": admin_email_lower, "password_hash": hash_password(ADMIN_PASSWORD),
             "name": "Admin", "role": "admin",
-            "subscription": {"status": "active", "plan": "admin", "expires_at": "2099-12-31T00:00:00+00:00"},
+            "subscription": {"status": "active", "plan": "admin", "expires_at": None},
             "created_at": datetime.now(timezone.utc).isoformat(),
         })
     else:
         # Ensure this user is admin with correct password
         update_fields = {
             "role": "admin",
-            "subscription": {"status": "active", "plan": "admin", "expires_at": "2099-12-31T00:00:00+00:00"},
+            "subscription": {"status": "active", "plan": "admin", "expires_at": None},
         }
         if not verify_password(ADMIN_PASSWORD, existing["password_hash"]):
             update_fields["password_hash"] = hash_password(ADMIN_PASSWORD)

@@ -162,13 +162,17 @@ export default function PremiumScreen() {
               <Text style={styles.activeTitle}>PREMIUM ACTIVE</Text>
             </View>
             <Text style={styles.activePlan}>
-              {user?.subscription?.plan?.toUpperCase()} PLAN
+              {user?.subscription?.plan === 'admin' ? 'OWNER' : user?.subscription?.plan?.toUpperCase()} PLAN
             </Text>
-            {user?.subscription?.expires_at && (
+            {user?.subscription?.plan === 'admin' ? (
+              <Text style={[styles.activeExpiry, { color: C.gold }]}>
+                Lifetime Access — No Expiration
+              </Text>
+            ) : user?.subscription?.expires_at ? (
               <Text style={styles.activeExpiry}>
                 Expires: {new Date(user.subscription.expires_at).toLocaleDateString()}
               </Text>
-            )}
+            ) : null}
             {user?.subscription?.payment_method && (
               <Text style={styles.activeMethod}>
                 Paid via: {user.subscription.payment_method.toUpperCase()}
