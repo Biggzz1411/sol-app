@@ -39,7 +39,6 @@ export default function ScannerScreen() {
   const [feed, setFeed] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [simulating, setSimulating] = useState(false);
   const [selectedToken, setSelectedToken] = useState<any>(null);
   const [audit, setAudit] = useState<any>(null);
 
@@ -63,26 +62,15 @@ export default function ScannerScreen() {
     return () => clearInterval(interval);
   }, [fetchFeed]);
 
-  const simulateDetection = async () => {
-    setSimulating(true);
-    try {
-      await fetch(`${API}/api/scanner/simulate`, { method: 'POST' });
-      await fetchFeed();
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setSimulating(false);
-    }
-  };
-
   const viewAudit = async (item: any) => {
     setSelectedToken(item);
     try {
-      const res = await fetch(`${API}/api/safety/${item.token_mint}`);
+      const res = await fetch(`${API}/api/safety/real/${item.token_mint}`);
       const data = await res.json();
-      setAudit(data);
+      setAudit({ ...item, ...data, checks: data.checks || {} });
     } catch (e) {
-      console.error(e);
+      // Fall back to detection data
+      setAudit(item);
     }
   };
 
@@ -152,18 +140,10 @@ export default function ScannerScreen() {
           <Radar color={C.primary} size={22} />
           <Text style={styles.headerTitle}>SCANNER</Text>
         </View>
-        <TouchableOpacity
-          testID="simulate-detection-btn"
-          style={styles.simBtn}
-          onPress={simulateDetection}
-          disabled={simulating}
-        >
-          {simulating ? (
-            <ActivityIndicator size="small" color={C.primary} />
-          ) : (
-            <Text style={styles.simBtnText}>+ SIMULATE</Text>
-          )}
-        </TouchableOpacity>
+        <View style={styles.liveIndicator}>
+          <View style={styles.liveDot} />
+          <Text style={styles.liveText}>LIVE</Text>
+        </View>
       </View>
 
       {loading ? (
@@ -174,7 +154,7 @@ export default function ScannerScreen() {
         <View style={styles.emptyContainer}>
           <Radar color={C.muted} size={48} strokeWidth={1} />
           <Text style={styles.emptyText}>NO DETECTIONS YET</Text>
-          <Text style={styles.emptySubText}>Start the bot or simulate a detection</Text>
+          <Text style={styles.emptySubText}>Start scanning from the Dashboard</Text>
         </View>
       ) : (
         <FlatList
@@ -212,12 +192,12 @@ export default function ScannerScreen() {
                     color: item.safety_score >= 80 ? C.success : item.safety_score >= 50 ? C.warning : C.danger,
                   }]}>{item.safety_score}/100</Text>
                   <View style={[styles.actionPill, {
-                    backgroundColor: item.action === 'sniped' ? C.successBg : C.dangerBg,
-                    borderColor: item.action === 'sniped' ? C.success : C.danger,
+                    backgroundColor: item.action === 'sniped' ? C.successBg : item.action === 'passed' ? 'rgba(157,76,221,0.15)' : C.dangerBg,
+                    borderColor: item.action === 'sniped' ? C.success : item.action === 'passed' ? C.primary : C.danger,
                   }]}>
                     <Text style={[styles.actionText, {
-                      color: item.action === 'sniped' ? C.success : C.danger,
-                    }]}>{item.action === 'sniped' ? 'SNIPED' : 'REJECTED'}</Text>
+                      color: item.action === 'sniped' ? C.success : item.action === 'passed' ? C.primary : C.danger,
+                    }]}>{item.action === 'sniped' ? 'SNIPED' : item.action === 'passed' ? 'PASSED' : 'REJECTED'}</Text>
                   </View>
                 </View>
               </View>
@@ -252,11 +232,16 @@ const styles = StyleSheet.create({
   },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   headerTitle: { color: '#F4F0FF', fontSize: 22, fontWeight: '800', letterSpacing: 2 },
-  simBtn: {
-    paddingHorizontal: 14, paddingVertical: 8, borderWidth: 1,
-    borderColor: C.primary, borderRadius: 4, backgroundColor: 'rgba(157, 76, 221, 0.4)',
+  liveIndicator: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 10, paddingVertical: 5,
+    borderWidth: 1, borderColor: C.success, borderRadius: 4,
+    backgroundColor: 'rgba(57, 255, 20, 0.1)',
   },
-  simBtnText: { color: C.primary, fontSize: 11, fontWeight: '700', letterSpacing: 1 },
+  liveDot: {
+    width: 8, height: 8, borderRadius: 4, backgroundColor: C.success,
+  },
+  liveText: { color: C.success, fontSize: 10, fontWeight: '800', letterSpacing: 2 },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12 },
   emptyText: { color: C.muted, fontSize: 14, fontWeight: '700', letterSpacing: 3 },

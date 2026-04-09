@@ -7,7 +7,15 @@ from fastapi import FastAPI, APIRouter, HTTPException, Request, Response
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from bson import ObjectId
-import os, logging, random, string, uuid, bcrypt, jwt, secrets
+import os
+import logging
+import random
+import string
+import uuid
+import bcrypt
+import jwt
+import secrets
+import asyncio
 from datetime import datetime, timezone, timedelta
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
@@ -16,6 +24,8 @@ from solana_rpc import (
     get_sol_balance, check_mint_authority, get_top_holder_concentration,
     real_safety_audit, derive_public_key, get_rpc_url, verify_sol_payment,
 )
+from scanner_service import TokenScanner
+import trade_service
 
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
@@ -31,6 +41,10 @@ JWT_ALGORITHM = "HS256"
 ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@sniperbot.io")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "SniperAdmin123!")
 OWNER_WALLET = os.environ.get("OWNER_WALLET", "8YjBBpAg8W3d8Juzrp7Xicga8wLe6sFwPphtswwJxgx9")
+
+# Global scanner state
+_scanner_instance = None
+_scanner_lock = asyncio.Lock()
 
 # ── Premium Packages ────────────────────────────
 PREMIUM_PLANS = {
@@ -133,6 +147,7 @@ class LoginRequest(BaseModel):
 
 class BotStateUpdate(BaseModel):
     is_running: Optional[bool] = None
+    scanner_running: Optional[bool] = None
     mode: Optional[str] = None
 
 class BotConfigUpdate(BaseModel):
@@ -162,6 +177,7 @@ class BotConfigUpdate(BaseModel):
     platform_pumpfun: Optional[bool] = None
     platform_raydium: Optional[bool] = None
     platform_pumpswap: Optional[bool] = None
+    auto_buy: Optional[bool] = None
 
 class WalletConfigUpdate(BaseModel):
     private_key: Optional[str] = None
@@ -186,16 +202,6 @@ def generate_referral_code() -> str:
 
 # ── Helpers ─────────────────────────────────────
 
-def random_mint():
-    return ''.join(random.choices(string.ascii_letters + string.digits, k=44))
-
-def random_token_name():
-    pre = ["ALIEN", "VOID", "MOON", "PEPE", "DOGE", "BONK", "WIF", "MYRO", "POPCAT", "MEW", "BOME", "SLERF"]
-    suf = ["INU", "COIN", "TOKEN", "SOL", "SWAP", "FI", "DAO", "X", "AI", "BOT"]
-    return random.choice(pre) + random.choice(suf)
-
-PLATFORMS = ["pump.fun", "raydium", "pumpswap"]
-
 async def add_log(level: str, message: str, user_id: str = None):
     entry = {
         "id": str(uuid.uuid4()), "level": level, "message": message,
@@ -210,6 +216,121 @@ async def get_user_rpc(user_id: str) -> str:
     if wallet and wallet.get("rpc_url"):
         return wallet["rpc_url"]
     return get_rpc_url()
+
+# ── Real Token Detection Callback ───────────────
+
+async def on_token_detected(detection_data: dict):
+    """Called by scanner when a new token is detected on-chain."""
+    try:
+        token_mint = detection_data.get("token_mint")
+        platform = detection_data.get("platform", "unknown")
+        signature = detection_data.get("signature", "")
+
+        if not token_mint:
+            return
+
+        logger.info(f"Token detected: {token_mint[:16]}... on {platform}")
+
+        # Run real on-chain safety audit
+        rpc = get_rpc_url()
+        audit = await real_safety_audit(token_mint, rpc)
+
+        # Get config for safety thresholds
+        config = await db.bot_config.find_one({}, {"_id": 0}) or {}
+
+        safety_score = audit.get("safety_score", 0)
+        checks = audit.get("checks", {})
+
+        # Check safety against config thresholds
+        safety_passed = safety_score >= config.get("min_safety_score", 60)
+        if config.get("require_mint_revoked") and not checks.get("mint_revoked"):
+            safety_passed = False
+        if config.get("require_freeze_revoked") and not checks.get("freeze_revoked"):
+            safety_passed = False
+        top_holder = checks.get("top_holder_pct", 100)
+        if top_holder > config.get("max_top_holder_pct", 15):
+            safety_passed = False
+
+        action = "passed" if safety_passed else "rejected"
+
+        # Store detection in scanner feed
+        detection = {
+            "id": str(uuid.uuid4()),
+            "token_mint": token_mint,
+            "token_name": token_mint[:8] + "...",
+            "platform": platform,
+            "safety_score": safety_score,
+            "safety_passed": safety_passed,
+            "mint_revoked": checks.get("mint_revoked", False),
+            "freeze_revoked": checks.get("freeze_revoked", False),
+            "top_holder_pct": top_holder,
+            "bundled": False,
+            "lp_burned": False,
+            "market_cap_usd": 0,
+            "action": action,
+            "signature": signature,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "slot": detection_data.get("slot", 0),
+        }
+        await db.scanner_feed.insert_one(detection)
+
+        await add_log("info", f"TOKEN: {token_mint[:12]}... on {platform} — Safety: {safety_score}/100")
+
+        if safety_passed:
+            # Only auto-buy when BOTH bot is running AND auto_buy is enabled
+            bot_state = await db.bot_state.find_one({}, {"_id": 0}) or {}
+            bot_active = bot_state.get("is_running", False)
+
+            if config.get("auto_buy", True) and bot_active:
+                buy_amount = config.get("buy_amount_sol", 0.015)
+                slippage = config.get("slippage_bps", 1000)
+                priority = config.get("priority_fee_lamports", 10000)
+
+                result = await trade_service.buy_token(
+                    token_mint=token_mint,
+                    amount_sol=buy_amount,
+                    slippage_bps=slippage,
+                    priority_fee=priority,
+                )
+
+                if result.get("success"):
+                    txid = result.get("txid", "")
+                    pos = {
+                        "id": str(uuid.uuid4()),
+                        "token_mint": token_mint,
+                        "token_name": token_mint[:8] + "...",
+                        "platform": platform,
+                        "amount_sol": buy_amount,
+                        "entry_time": datetime.now(timezone.utc).isoformat(),
+                        "safety_score": safety_score,
+                        "status": "open",
+                        "txid": txid,
+                        "out_amount": result.get("out_amount", 0),
+                        "current_value_sol": buy_amount,
+                        "pnl_sol": 0,
+                        "pnl_pct": 0,
+                    }
+                    await db.positions.insert_one(pos)
+                    await add_log("success", f"SNIPED: {token_mint[:12]}... — {buy_amount} SOL — TX: {txid[:16]}...")
+                    await db.bot_state.update_one({}, {"$inc": {"tokens_sniped": 1}})
+                    await db.scanner_feed.update_one(
+                        {"id": detection["id"]},
+                        {"$set": {"action": "sniped", "txid": txid}},
+                    )
+                else:
+                    error = result.get("error", "Unknown error")
+                    await add_log("warn", f"BUY FAILED: {token_mint[:12]}... — {error}")
+            elif not bot_active:
+                await add_log("info", f"ALERT: {token_mint[:12]}... passed safety (bot not active)")
+            else:
+                await add_log("info", f"ALERT: {token_mint[:12]}... passed safety (auto-buy off)")
+        else:
+            await add_log("warn", f"REJECTED: {token_mint[:12]}... — Score: {safety_score}/100")
+
+        await db.bot_state.update_one({}, {"$inc": {"tokens_scanned": 1}})
+
+    except Exception as e:
+        logger.error(f"Token detection handler error: {e}")
 
 # ── Startup ─────────────────────────────────────
 
@@ -247,12 +368,13 @@ async def startup():
 
     # Ensure bot defaults
     if not await db.bot_state.find_one({}):
-        await db.bot_state.insert_one({"is_running": False, "mode": "paper", "started_at": None, "tokens_scanned": 0, "tokens_sniped": 0})
+        await db.bot_state.insert_one({"is_running": False, "scanner_running": False, "mode": "live", "started_at": None, "tokens_scanned": 0, "tokens_sniped": 0})
     if not await db.bot_config.find_one({}):
         await db.bot_config.insert_one({
-            "strategy": "balanced", "buy_amount_sol": 0.05, "slippage_bps": 1000,
+            "strategy": "balanced", "buy_amount_sol": 0.015, "slippage_bps": 1000,
             "priority_fee_lamports": 10000, "jito_tip_sol": 0.01, "max_open_positions": 5,
-            "use_jito": True, "auto_sell": True, "take_profit_pct1": 100, "take_profit_pct2": 300,
+            "use_jito": True, "auto_sell": True, "auto_buy": True,
+            "take_profit_pct1": 100, "take_profit_pct2": 300,
             "stop_loss_pct": -30, "trailing_stop_pct": 15, "max_hold_seconds": 3600,
             "price_check_interval": 10000, "require_mint_revoked": True, "require_freeze_revoked": True,
             "require_update_revoked": True, "require_lp_burned": True, "max_top_holder_pct": 15,
@@ -781,26 +903,42 @@ async def get_bot_state():
 
 @api_router.put("/bot/state")
 async def update_bot_state(update: BotStateUpdate, request: Request):
+    global _scanner_instance
     user = await get_optional_user(request)
     current = await db.bot_state.find_one({}, {"_id": 0}) or {}
     updates = {k: v for k, v in update.model_dump().items() if v is not None}
 
-    if "mode" in updates and updates["mode"] == "live":
-        if user and not is_premium(user):
-            raise HTTPException(403, "Live trading requires Premium subscription")
-
+    # Handle bot toggle (trading engine)
     if "is_running" in updates:
         if updates["is_running"] and not current.get("is_running"):
-            updates["started_at"] = datetime.now(timezone.utc).isoformat()
-            await add_log("info", "Bot started in {} mode".format(current.get("mode", "paper")))
-            await add_log("info", "Connecting to Helius RPC...")
-            await add_log("success", "Scanner active — monitoring platforms")
-        elif not updates["is_running"]:
-            updates["started_at"] = None
-            await add_log("warn", "Bot stopped")
+            await add_log("success", "Bot activated — ready to trade")
+        elif not updates["is_running"] and current.get("is_running"):
+            await add_log("warn", "Bot deactivated — trading paused")
 
-    if "mode" in updates:
-        await add_log("info", f"Mode changed to: {updates['mode']}")
+    # Handle scanner toggle (blockchain monitor) — independent from bot
+    if "scanner_running" in updates:
+        if updates["scanner_running"] and not current.get("scanner_running"):
+            # Start real scanner
+            async with _scanner_lock:
+                if not _scanner_instance or not _scanner_instance.running:
+                    rpc_url = get_rpc_url()
+                    wss_url = os.environ.get("HELIUS_WSS_URL", rpc_url.replace("https://", "wss://"))
+                    _scanner_instance = TokenScanner(
+                        rpc_url=rpc_url,
+                        wss_url=wss_url,
+                        on_token_detected=on_token_detected,
+                    )
+                    await _scanner_instance.start()
+            updates["started_at"] = datetime.now(timezone.utc).isoformat()
+            await add_log("success", "Scanner started — monitoring Pump.fun, Raydium, PumpSwap")
+        elif not updates["scanner_running"]:
+            # Stop real scanner
+            async with _scanner_lock:
+                if _scanner_instance:
+                    await _scanner_instance.stop()
+                    _scanner_instance = None
+            updates["started_at"] = None
+            await add_log("warn", "Scanner stopped")
 
     current.update(updates)
     await db.bot_state.replace_one({}, current, upsert=True)
@@ -896,12 +1034,22 @@ async def refresh_wallet_balances(request: Request):
 
 @api_router.get("/wallet")
 async def get_wallet_legacy():
-    state = await db.bot_state.find_one({}, {"_id": 0})
-    mode = state.get("mode", "paper") if state else "paper"
+    """Get trading wallet info from configured private key."""
+    pub_key = trade_service.get_wallet_pubkey()
+    if pub_key:
+        rpc = get_rpc_url()
+        balance = await get_sol_balance(pub_key, rpc)
+        return {
+            "address": pub_key,
+            "balance_sol": round(balance, 4),
+            "mode": "live",
+            "connected": True,
+        }
     return {
-        "address": "PAPER_" + "".join(random.choices(string.ascii_letters, k=32)) if mode == "paper" else "Not connected",
-        "balance_sol": round(random.uniform(0.5, 10.0), 4) if mode == "paper" else 0,
-        "mode": mode,
+        "address": "Not configured",
+        "balance_sol": 0,
+        "mode": "live",
+        "connected": False,
     }
 
 @api_router.get("/wallet/config")
@@ -949,74 +1097,86 @@ async def get_scanner_feed(limit: int = 50):
     items = await db.scanner_feed.find({}, {"_id": 0}).sort("timestamp", -1).to_list(limit)
     return items
 
-@api_router.post("/scanner/simulate")
-async def simulate_detection():
-    state = await db.bot_state.find_one({}, {"_id": 0})
-    if not state or not state.get("is_running"):
-        return {"error": "Bot not running"}
+@api_router.get("/scanner/status")
+async def get_scanner_status():
+    """Get real-time scanner status."""
+    running = _scanner_instance is not None and _scanner_instance.running if _scanner_instance else False
+    state = await db.bot_state.find_one({}, {"_id": 0}) or {}
     config = await db.bot_config.find_one({}, {"_id": 0}) or {}
-
-    token_mint = random_mint()
-    token_name = random_token_name()
-    platform = random.choice(PLATFORMS)
-    slot = random.randint(250000000, 300000000)
-
-    mint_revoked = random.random() > 0.2
-    freeze_revoked = random.random() > 0.15
-    bundled = random.random() < 0.15
-    lp_burned = random.random() > 0.25
-    top_holder_pct = round(random.uniform(2, 35), 1)
-    market_cap = round(random.uniform(1000, 500000), 0)
-
-    score = 0
-    if mint_revoked: score += 25
-    if freeze_revoked: score += 25
-    if top_holder_pct <= config.get("max_top_holder_pct", 15): score += 15
-    if not bundled: score += 20
-    if lp_burned: score += 15
-
-    safety_passed = (
-        score >= config.get("min_safety_score", 60) and
-        (not config.get("require_mint_revoked") or mint_revoked) and
-        (not config.get("require_freeze_revoked") or freeze_revoked) and
-        (not config.get("reject_bundles") or not bundled)
-    )
-    action = "sniped" if safety_passed else "rejected"
-
-    detection = {
-        "id": str(uuid.uuid4()), "token_mint": token_mint, "token_name": token_name,
-        "platform": platform, "safety_score": score, "safety_passed": safety_passed,
-        "market_cap_usd": market_cap, "top_holder_pct": top_holder_pct,
-        "mint_revoked": mint_revoked, "freeze_revoked": freeze_revoked,
-        "bundled": bundled, "lp_burned": lp_burned, "action": action,
-        "timestamp": datetime.now(timezone.utc).isoformat(), "slot": slot,
+    return {
+        "running": running,
+        "is_running": state.get("is_running", False),
+        "started_at": state.get("started_at"),
+        "tokens_scanned": state.get("tokens_scanned", 0),
+        "tokens_sniped": state.get("tokens_sniped", 0),
+        "auto_buy": config.get("auto_buy", True),
     }
-    await db.scanner_feed.insert_one(detection)
-    await add_log("info", f"NEW TOKEN: {token_name} on {platform}")
-    await add_log("info", f"Safety: {token_name} — {score}/100")
 
-    if safety_passed:
-        await add_log("success", f"SNIPED: {token_name}")
-        amount_sol = config.get("buy_amount_sol", 0.05)
-        pnl_pct = round(random.uniform(-30, 200), 1)
-        pnl_sol = round(amount_sol * (pnl_pct / 100), 4)
+# ── Real Trade Endpoints ────────────────────────
+
+class ManualBuyRequest(BaseModel):
+    token_mint: str
+    amount_sol: float = 0.015
+    slippage_bps: int = 1000
+
+class ManualSellRequest(BaseModel):
+    token_mint: str
+    amount_tokens: int = 0
+    slippage_bps: int = 1000
+
+@api_router.post("/trade/buy")
+async def manual_buy(req: ManualBuyRequest, request: Request):
+    """Manually buy a token via Jupiter."""
+    user = await get_current_user(request)
+    config = await db.bot_config.find_one({}, {"_id": 0}) or {}
+    result = await trade_service.buy_token(
+        token_mint=req.token_mint,
+        amount_sol=req.amount_sol,
+        slippage_bps=req.slippage_bps,
+        priority_fee=config.get("priority_fee_lamports", 10000),
+    )
+    if result.get("success"):
         pos = {
-            "id": str(uuid.uuid4()), "token_mint": token_mint, "token_name": token_name,
-            "platform": platform, "amount_sol": amount_sol,
-            "expected_tokens": random.randint(100000, 50000000),
-            "current_value_sol": max(round(amount_sol + pnl_sol, 4), 0.001),
-            "entry_time": datetime.now(timezone.utc).isoformat(), "safety_score": score,
-            "tp1_hit": False, "peak_value_sol": max(round((amount_sol + pnl_sol) * random.uniform(1.0, 1.5), 4), amount_sol),
-            "pnl_pct": pnl_pct, "pnl_sol": pnl_sol, "status": "open",
-            "txid": f"PAPER_{uuid.uuid4().hex[:16]}",
+            "id": str(uuid.uuid4()),
+            "token_mint": req.token_mint,
+            "token_name": req.token_mint[:8] + "...",
+            "platform": "manual",
+            "amount_sol": req.amount_sol,
+            "entry_time": datetime.now(timezone.utc).isoformat(),
+            "safety_score": 0,
+            "status": "open",
+            "txid": result.get("txid", ""),
+            "out_amount": result.get("out_amount", 0),
+            "current_value_sol": req.amount_sol,
+            "pnl_sol": 0,
+            "pnl_pct": 0,
         }
         await db.positions.insert_one(pos)
-        await db.bot_state.update_one({}, {"$inc": {"tokens_sniped": 1, "tokens_scanned": 1}})
-    else:
-        await add_log("warn", f"REJECTED: {token_name}")
-        await db.bot_state.update_one({}, {"$inc": {"tokens_scanned": 1}})
+        await add_log("success", f"Manual buy: {req.token_mint[:12]}... — {req.amount_sol} SOL", user["id"])
+    return result
 
-    return {k: v for k, v in detection.items() if k != "_id"}
+@api_router.post("/trade/sell")
+async def manual_sell(req: ManualSellRequest, request: Request):
+    """Manually sell a token via Jupiter."""
+    user = await get_current_user(request)
+    config = await db.bot_config.find_one({}, {"_id": 0}) or {}
+    result = await trade_service.sell_token(
+        token_mint=req.token_mint,
+        amount_tokens=req.amount_tokens,
+        slippage_bps=req.slippage_bps,
+        priority_fee=config.get("priority_fee_lamports", 10000),
+    )
+    if result.get("success"):
+        await add_log("success", f"Manual sell: {req.token_mint[:12]}...", user["id"])
+    return result
+
+@api_router.get("/trade/quote")
+async def get_trade_quote(input_mint: str, output_mint: str, amount_lamports: int, slippage_bps: int = 1000):
+    """Get Jupiter swap quote."""
+    quote = await trade_service.get_jupiter_quote(input_mint, output_mint, amount_lamports, slippage_bps)
+    if quote:
+        return quote
+    raise HTTPException(400, "Failed to get quote")
 
 # ── Real Safety Audit (Solana RPC) ──────────────
 
@@ -1029,21 +1189,29 @@ async def get_real_safety_audit(token_mint: str):
 
 @api_router.get("/safety/{token_mint}")
 async def get_safety_audit(token_mint: str):
+    """Get safety audit — check scanner DB first, then fall back to on-chain."""
     detection = await db.scanner_feed.find_one({"token_mint": token_mint}, {"_id": 0})
-    if not detection:
-        return {"error": "Token not found"}
-    return {
-        "token_mint": detection["token_mint"], "token_name": detection["token_name"],
-        "platform": detection["platform"], "safety_score": detection["safety_score"],
-        "safety_passed": detection["safety_passed"], "market_cap_usd": detection["market_cap_usd"],
-        "checks": {
-            "mint_revoked": detection["mint_revoked"], "freeze_revoked": detection["freeze_revoked"],
-            "bundled": detection["bundled"], "lp_burned": detection["lp_burned"],
-            "top_holder_pct": detection["top_holder_pct"],
-            "update_revoked": random.random() > 0.2, "social_links": random.random() > 0.5,
-        },
-        "timestamp": detection["timestamp"],
-    }
+    if detection:
+        return {
+            "token_mint": detection["token_mint"],
+            "token_name": detection.get("token_name", token_mint[:8]),
+            "platform": detection.get("platform", "unknown"),
+            "safety_score": detection.get("safety_score", 0),
+            "safety_passed": detection.get("safety_passed", False),
+            "market_cap_usd": detection.get("market_cap_usd", 0),
+            "checks": {
+                "mint_revoked": detection.get("mint_revoked", False),
+                "freeze_revoked": detection.get("freeze_revoked", False),
+                "top_holder_pct": detection.get("top_holder_pct", 0),
+                "bundled": detection.get("bundled", False),
+                "lp_burned": detection.get("lp_burned", False),
+            },
+            "timestamp": detection.get("timestamp"),
+        }
+    # Fall back to real on-chain audit
+    rpc = get_rpc_url()
+    audit = await real_safety_audit(token_mint, rpc)
+    return audit
 
 # ── Portfolio ───────────────────────────────────
 
@@ -1052,10 +1220,13 @@ async def get_portfolio():
     open_pos = await db.positions.find({"status": "open"}, {"_id": 0}).sort("entry_time", -1).to_list(100)
     closed_pos = await db.positions.find({"status": "closed"}, {"_id": 0}).sort("close_time", -1).to_list(100)
     for pos in open_pos:
-        drift = random.uniform(-0.05, 0.05)
-        pos["current_value_sol"] = round(max(pos.get("current_value_sol", 0.05) * (1 + drift), 0.001), 4)
-        pos["pnl_sol"] = round(pos["current_value_sol"] - pos.get("amount_sol", 0.05), 4)
-        pos["pnl_pct"] = round((pos["current_value_sol"] / max(pos.get("amount_sol", 0.05), 0.001) - 1) * 100, 1)
+        # Use stored values from real trades
+        if not pos.get("current_value_sol"):
+            pos["current_value_sol"] = pos.get("amount_sol", 0)
+        if "pnl_sol" not in pos:
+            pos["pnl_sol"] = 0
+        if "pnl_pct" not in pos:
+            pos["pnl_pct"] = 0
     total_realized = sum(p.get("pnl_sol", 0) for p in closed_pos)
     total_unrealized = sum(p.get("pnl_sol", 0) for p in open_pos)
     profitable = len([p for p in closed_pos if p.get("pnl_sol", 0) > 0])
@@ -1128,9 +1299,15 @@ async def get_stats():
 
 @api_router.post("/reset")
 async def reset_all():
+    global _scanner_instance
+    # Stop scanner if running
+    async with _scanner_lock:
+        if _scanner_instance:
+            await _scanner_instance.stop()
+            _scanner_instance = None
     for col in ["scanner_feed", "positions", "activity_logs"]:
         await db[col].delete_many({})
-    await db.bot_state.replace_one({}, {"is_running": False, "mode": "paper", "started_at": None, "tokens_scanned": 0, "tokens_sniped": 0}, upsert=True)
+    await db.bot_state.replace_one({}, {"is_running": False, "scanner_running": False, "mode": "live", "started_at": None, "tokens_scanned": 0, "tokens_sniped": 0}, upsert=True)
     return {"message": "Reset"}
 
 @api_router.get("/health")
@@ -1150,4 +1327,8 @@ app.add_middleware(
 
 @app.on_event("shutdown")
 async def shutdown():
+    global _scanner_instance
+    if _scanner_instance:
+        await _scanner_instance.stop()
+        _scanner_instance = None
     client.close()

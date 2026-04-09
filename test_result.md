@@ -101,3 +101,180 @@
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
+
+user_problem_statement: "Convert Solana sniper bot from simulated/paper trading to real blockchain interactions. Remove all paper trading, implement real scanner (free blockchain scanning), real Jupiter swap trades, and independent bot/scanner toggle controls."
+
+backend:
+  - task: "Real Token Scanner - Start/Stop via /api/bot/state with scanner_running toggle"
+    implemented: true
+    working: true
+    file: "server.py, scanner_service.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "Scanner starts via PUT /api/bot/state {scanner_running: true}, detects real Pump.fun tokens, runs safety audits. Verified with curl."
+      - working: true
+        agent: "testing"
+        comment: "✅ VERIFIED: Scanner starts/stops correctly via PUT /api/bot/state. Detected 11 real tokens from Pump.fun and Raydium within 15 seconds. Real blockchain monitoring confirmed."
+
+  - task: "Bot Toggle independent from Scanner - /api/bot/state with is_running toggle"
+    implemented: true
+    working: true
+    file: "server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "Bot and scanner are now independent toggles. Bot controls trading, scanner controls monitoring."
+      - working: true
+        agent: "testing"
+        comment: "✅ VERIFIED: Independent toggles working perfectly. Can start/stop bot and scanner separately. Tested all combinations: both on, both off, bot only, scanner only."
+
+  - task: "Real Trade Endpoints - /api/trade/buy and /api/trade/sell via Jupiter"
+    implemented: true
+    working: false
+    file: "server.py, trade_service.py"
+    stuck_count: 1
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Manual buy/sell endpoints created using Jupiter swap API. Not tested with real trades yet."
+      - working: false
+        agent: "testing"
+        comment: "❌ NETWORK ISSUE: Trade endpoints correctly implemented but Jupiter API not accessible due to DNS resolution error '[Errno -5] No address associated with hostname'. Container network limitation, not code issue."
+
+  - task: "Scanner Status endpoint - /api/scanner/status"
+    implemented: true
+    working: true
+    file: "server.py"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "Returns scanner running state, tokens scanned/sniped, and auto_buy status."
+      - working: true
+        agent: "testing"
+        comment: "✅ VERIFIED: Scanner status endpoint working. Returns running state, tokens_scanned count, and auto_buy setting correctly."
+
+  - task: "Wallet endpoint returns real wallet data"
+    implemented: true
+    working: true
+    file: "server.py"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "Returns real wallet address and SOL balance from configured private key."
+      - working: true
+        agent: "testing"
+        comment: "✅ VERIFIED: Wallet endpoint returns real wallet address (8YjBBpAg8W3d...), not PAPER_ format. Mode is 'live', connected: true."
+
+  - task: "Auto-buy toggle in config - /api/bot/config auto_buy field"
+    implemented: true
+    working: true
+    file: "server.py"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "auto_buy added to config, default 0.015 SOL buy amount (~$2.50)"
+      - working: true
+        agent: "testing"
+        comment: "✅ VERIFIED: Auto-buy toggle working. Can set auto_buy to true/false via PUT /api/bot/config. Default buy amount 0.015 SOL confirmed."
+
+  - task: "Paper trading removal - no simulate endpoint, no random data"
+    implemented: true
+    working: true
+    file: "server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "Removed /api/scanner/simulate, random_mint(), random_token_name(), PLATFORMS, paper PnL drift. All data is now real."
+      - working: true
+        agent: "testing"
+        comment: "✅ VERIFIED: Paper trading completely removed. /api/scanner/simulate returns 404. Bot state mode is 'live' not 'paper'. No random data generation."
+
+  - task: "Safety audit uses real on-chain data"
+    implemented: true
+    working: true
+    file: "server.py, solana_rpc.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "Safety endpoint checks scanner DB first, falls back to real on-chain audit."
+      - working: true
+        agent: "testing"
+        comment: "✅ VERIFIED: Real safety audit working. GET /api/safety/real/{mint} performs on-chain checks, returns safety score, mint/freeze authority status."
+
+frontend:
+  - task: "Dashboard dual buttons - independent Bot and Scanner toggles"
+    implemented: true
+    working: "NA"
+    file: "app/index.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Two buttons side by side: BOT ON/OFF and SCANNING/SCAN OFF. Also AUTO-BUY/ALERT mode toggle."
+
+  - task: "Scanner page - removed simulate button, shows real detections"
+    implemented: true
+    working: "NA"
+    file: "app/scanner.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Removed simulate button, added LIVE indicator, shows real token detections."
+
+metadata:
+  created_by: "main_agent"
+  version: "1.0"
+  test_sequence: 1
+  run_ui: false
+
+test_plan:
+  current_focus:
+    - "Real Token Scanner - Start/Stop via /api/bot/state with scanner_running toggle"
+    - "Bot Toggle independent from Scanner - /api/bot/state with is_running toggle"
+    - "Real Trade Endpoints - /api/trade/buy and /api/trade/sell via Jupiter"
+    - "Scanner Status endpoint - /api/scanner/status"
+    - "Wallet endpoint returns real wallet data"
+    - "Auto-buy toggle in config - /api/bot/config auto_buy field"
+    - "Paper trading removal - no simulate endpoint, no random data"
+    - "Safety audit uses real on-chain data"
+  stuck_tasks: 
+    - "Real Trade Endpoints - /api/trade/buy and /api/trade/sell via Jupiter"
+  test_all: false
+  test_priority: "high_first"
+
+agent_communication:
+  - agent: "testing"
+    message: "Comprehensive backend testing completed. All major functionality working except Jupiter API connectivity (network limitation). Scanner detecting real tokens, independent toggles working, paper trading removed, real wallet data, safety audits functional."
+
+test_credentials:
+  email: "Superbiggzz1411@gmail.com"
+  password: "Biggzz1411!"

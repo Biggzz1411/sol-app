@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { Zap, ZapOff, Activity, TrendingUp, Target, Eye, LogOut, Crown } from 'lucide-react-native';
+import { Zap, ZapOff, Activity, TrendingUp, Target, Eye, LogOut, Crown, Radar } from 'lucide-react-native';
 import { useAuth } from '../src/AuthContext';
 
 const API = process.env.EXPO_PUBLIC_BACKEND_URL;
@@ -32,20 +32,23 @@ export default function Dashboard() {
   const [state, setState] = useState<any>(null);
   const [stats, setStats] = useState<any>(null);
   const [wallet, setWallet] = useState<any>(null);
+  const [config, setConfig] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [toggling, setToggling] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
-      const [stateRes, statsRes, walletRes] = await Promise.all([
+      const [stateRes, statsRes, walletRes, configRes] = await Promise.all([
         fetch(`${API}/api/bot/state`),
         fetch(`${API}/api/stats`),
         fetch(`${API}/api/wallet`),
+        fetch(`${API}/api/bot/config`),
       ]);
       setState(await stateRes.json());
       setStats(await statsRes.json());
       setWallet(await walletRes.json());
+      setConfig(await configRes.json());
     } catch (e) {
       console.error('Fetch error:', e);
     } finally {
@@ -70,15 +73,6 @@ export default function Dashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ is_running: newState }),
       });
-
-      // If starting, simulate some detections
-      if (newState) {
-        for (let i = 0; i < 3; i++) {
-          setTimeout(async () => {
-            await fetch(`${API}/api/scanner/simulate`, { method: 'POST' });
-          }, (i + 1) * 2000);
-        }
-      }
       await fetchData();
     } catch (e) {
       console.error('Toggle error:', e);
@@ -87,14 +81,32 @@ export default function Dashboard() {
     }
   };
 
-  const toggleMode = async () => {
-    const newMode = state?.mode === 'paper' ? 'live' : 'paper';
-    await fetch(`${API}/api/bot/state`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mode: newMode }),
-    });
-    await fetchData();
+  const toggleScanner = async () => {
+    try {
+      const newState = !state?.scanner_running;
+      await fetch(`${API}/api/bot/state`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scanner_running: newState }),
+      });
+      await fetchData();
+    } catch (e) {
+      console.error('Toggle scanner error:', e);
+    }
+  };
+
+  const toggleAutoBuy = async () => {
+    try {
+      const newAutoBuy = !config?.auto_buy;
+      await fetch(`${API}/api/bot/config`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ auto_buy: newAutoBuy }),
+      });
+      await fetchData();
+    } catch (e) {
+      console.error('Toggle auto-buy error:', e);
+    }
   };
 
   if (loading) {
@@ -110,7 +122,7 @@ export default function Dashboard() {
   }
 
   const isRunning = state?.is_running;
-  const mode = state?.mode || 'paper';
+  // Bot and scanner states accessed via state?.is_running and state?.scanner_running
 
   return (
     <SafeAreaView style={styles.container}>
@@ -138,11 +150,11 @@ export default function Dashboard() {
             )}
             <TouchableOpacity
               testID="mode-toggle-btn"
-              style={[styles.modeBadge, mode === 'live' ? styles.modeLive : styles.modePaper]}
-              onPress={toggleMode}
+              style={[styles.modeBadge, config?.auto_buy ? styles.modeLive : styles.modePaper]}
+              onPress={toggleAutoBuy}
             >
-              <Text style={[styles.modeText, mode === 'live' ? styles.modeTextLive : styles.modeTextPaper]}>
-                {mode === 'paper' ? 'PAPER' : 'LIVE'}
+              <Text style={[styles.modeText, config?.auto_buy ? styles.modeTextLive : styles.modeTextPaper]}>
+                {config?.auto_buy ? 'AUTO-BUY' : 'ALERT'}
               </Text>
             </TouchableOpacity>
             {user && (
@@ -153,35 +165,56 @@ export default function Dashboard() {
           </View>
         </View>
 
-        {/* Reactor Button */}
-        <View style={styles.reactorContainer}>
+        {/* Dual Control Buttons */}
+        <View style={styles.dualBtnContainer}>
+          {/* Bot Toggle */}
           <TouchableOpacity
             testID="dashboard-start-bot-button"
             style={[
-              styles.reactorBtn,
-              isRunning ? styles.reactorActive : styles.reactorInactive,
+              styles.dualBtn,
+              state?.is_running ? styles.dualBtnActiveGreen : styles.dualBtnInactive,
             ]}
             onPress={toggleBot}
             disabled={toggling}
             activeOpacity={0.7}
           >
             {toggling ? (
-              <ActivityIndicator size="large" color={isRunning ? C.success : C.primary} />
-            ) : isRunning ? (
-              <Zap color={C.success} size={48} strokeWidth={2} />
+              <ActivityIndicator size="small" color={state?.is_running ? C.success : C.primary} />
+            ) : state?.is_running ? (
+              <Zap color={C.success} size={28} strokeWidth={2} />
             ) : (
-              <ZapOff color={C.muted} size={48} strokeWidth={1.5} />
+              <ZapOff color={C.muted} size={28} strokeWidth={1.5} />
             )}
-          </TouchableOpacity>
-          <Text style={[styles.reactorLabel, isRunning && styles.reactorLabelActive]}>
-            {toggling ? 'PROCESSING...' : isRunning ? 'SYSTEM ACTIVE' : 'TAP TO ENGAGE'}
-          </Text>
-          {isRunning && state?.started_at && (
-            <Text style={styles.uptimeText}>
-              ONLINE SINCE {new Date(state.started_at).toLocaleTimeString()}
+            <Text style={[styles.dualBtnLabel, state?.is_running && styles.dualBtnLabelActive]}>
+              {state?.is_running ? 'BOT ON' : 'BOT OFF'}
             </Text>
-          )}
+          </TouchableOpacity>
+
+          {/* Scanner Toggle */}
+          <TouchableOpacity
+            testID="dashboard-start-scanner-button"
+            style={[
+              styles.dualBtn,
+              state?.scanner_running ? styles.dualBtnActivePurple : styles.dualBtnInactive,
+            ]}
+            onPress={toggleScanner}
+            activeOpacity={0.7}
+          >
+            {state?.scanner_running ? (
+              <Radar color={C.primary} size={28} strokeWidth={2} />
+            ) : (
+              <Radar color={C.muted} size={28} strokeWidth={1.5} />
+            )}
+            <Text style={[styles.dualBtnLabel, state?.scanner_running && { color: C.primary }]}>
+              {state?.scanner_running ? 'SCANNING' : 'SCAN OFF'}
+            </Text>
+          </TouchableOpacity>
         </View>
+        {state?.started_at && (
+          <Text style={styles.uptimeText}>
+            SCANNER ONLINE SINCE {new Date(state.started_at).toLocaleTimeString()}
+          </Text>
+        )}
 
         {/* Stats Grid */}
         <View style={styles.statsGrid}>
@@ -206,15 +239,21 @@ export default function Dashboard() {
         <View style={styles.card}>
           <Text style={styles.cardLabel}>STATUS</Text>
           <View style={styles.statusRow}>
-            <View style={[styles.statusDot, { backgroundColor: isRunning ? C.success : C.danger }]} />
+            <View style={[styles.statusDot, { backgroundColor: state?.is_running ? C.success : C.danger }]} />
             <Text style={styles.statusText}>
-              {isRunning ? 'Scanner Active' : 'Scanner Offline'}
+              {state?.is_running ? 'Bot Active (Trading)' : 'Bot Offline'}
             </Text>
           </View>
           <View style={styles.statusRow}>
-            <View style={[styles.statusDot, { backgroundColor: mode === 'paper' ? C.warning : C.danger }]} />
+            <View style={[styles.statusDot, { backgroundColor: state?.scanner_running ? C.success : C.danger }]} />
             <Text style={styles.statusText}>
-              {mode === 'paper' ? 'Paper Trade Mode' : 'Live Trading Mode'}
+              {state?.scanner_running ? 'Scanner Active' : 'Scanner Offline'}
+            </Text>
+          </View>
+          <View style={styles.statusRow}>
+            <View style={[styles.statusDot, { backgroundColor: config?.auto_buy ? C.success : C.warning }]} />
+            <Text style={styles.statusText}>
+              {config?.auto_buy ? 'Auto-Buy Active' : 'Alert Only Mode'}
             </Text>
           </View>
           <View style={styles.statusRow}>
@@ -268,29 +307,34 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14, paddingVertical: 6, borderRadius: 4, borderWidth: 1,
   },
   modePaper: { borderColor: C.warning, backgroundColor: 'rgba(255,215,0,0.1)' },
-  modeLive: { borderColor: C.danger, backgroundColor: C.dangerBg },
+  modeLive: { borderColor: C.success, backgroundColor: 'rgba(57,255,20,0.1)' },
   modeText: { fontSize: 11, fontWeight: '700', letterSpacing: 2 },
   modeTextPaper: { color: C.warning },
-  modeTextLive: { color: C.danger },
+  modeTextLive: { color: C.success },
 
-  reactorContainer: { alignItems: 'center', paddingVertical: 32 },
-  reactorBtn: {
-    width: 140, height: 140, borderRadius: 70, justifyContent: 'center', alignItems: 'center',
-    borderWidth: 2,
+  dualBtnContainer: {
+    flexDirection: 'row', paddingHorizontal: 20, gap: 14, paddingVertical: 24,
   },
-  reactorInactive: {
+  dualBtn: {
+    flex: 1, height: 110, borderRadius: 12, borderWidth: 2,
+    justifyContent: 'center', alignItems: 'center', gap: 10,
+  },
+  dualBtnInactive: {
     borderColor: C.border, backgroundColor: C.surface,
   },
-  reactorActive: {
+  dualBtnActiveGreen: {
     borderColor: C.success, backgroundColor: 'rgba(57, 255, 20, 0.08)',
-    shadowColor: C.success, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.6, shadowRadius: 30,
-    ...(Platform.OS === 'android' ? { elevation: 12 } : {}),
+    ...(Platform.OS === 'android' ? { elevation: 8 } : {}),
   },
-  reactorLabel: {
-    marginTop: 16, color: C.muted, fontSize: 13, fontWeight: '700', letterSpacing: 3,
+  dualBtnActivePurple: {
+    borderColor: C.primary, backgroundColor: 'rgba(157, 76, 221, 0.08)',
+    ...(Platform.OS === 'android' ? { elevation: 8 } : {}),
   },
-  reactorLabelActive: { color: C.success },
-  uptimeText: { color: C.muted, fontSize: 10, letterSpacing: 2, marginTop: 4 },
+  dualBtnLabel: {
+    color: C.muted, fontSize: 13, fontWeight: '800', letterSpacing: 3,
+  },
+  dualBtnLabelActive: { color: C.success },
+  uptimeText: { color: C.muted, fontSize: 10, letterSpacing: 2, textAlign: 'center', marginBottom: 8 },
 
   statsGrid: {
     flexDirection: 'row', paddingHorizontal: 16, gap: 10, marginBottom: 16,
