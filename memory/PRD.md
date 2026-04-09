@@ -1,63 +1,49 @@
 # Solana Sniper Bot - Mobile App
 
 ## Overview
-Full-featured Solana meme coin sniper bot mobile app with real blockchain integration, SOL payments direct to owner wallet, premium subscription tiers, multi-wallet support, and admin payment wallet management.
+Full-featured Solana meme coin sniper bot mobile app with real blockchain integration, dual payment system (SOL + Stripe), referral program, premium tiers, and admin payment wallet management.
 
-## Admin Credentials
+## Admin
 - Email: Superbiggzz1411@gmail.com
 - Password: Biggzz1411!
-- Role: admin (auto-premium, payment wallet management)
+- Auto-premium, manages payment wallets
 
 ## Payment System
-- **SOL Payments (Primary)**: Direct transfer to owner's active payment wallet
-- **Stripe (Coming Soon)**: Placeholder ready, user can plug in their Stripe key later
-- **Pricing**: Monthly 0.2 SOL (~$29) | Quarterly 0.5 SOL (~$69, 17% savings)
-- **On-chain verification**: Helius RPC verifies incoming SOL transfers by matching unique amounts
+### SOL Payments (Primary)
+- Direct transfer to admin's active payment wallet
+- Dynamic wallet — admin can add/switch/remove wallets from Config screen
+- Default: 8YjBBpAg8W3d8Juzrp7Xicga8wLe6sFwPphtswwJxgx9
+- On-chain verification via Helius RPC
 
-## Admin Payment Wallet Management
-- Admin can add multiple Solana wallets to receive payments
-- Only one wallet active at a time (receives payments)
-- Can switch active wallet, delete inactive wallets
-- Default wallet: 8YjBBpAg8W3d8Juzrp7Xicga8wLe6sFwPphtswwJxgx9
+### Stripe (Live)
+- Live key connected (sk_live_...)
+- Stripe Checkout flow with redirect
+- Monthly $29 / Quarterly $69
+
+### Pricing
+| Plan | SOL | USD | Duration | Savings |
+|------|-----|-----|----------|---------|
+| Monthly | 0.2 SOL | $29 | 30 days | — |
+| Quarterly | 0.5 SOL | $69 | 90 days | 17% |
+
+## Referral Program
+- Referrer: +7 days free premium per referral
+- Referee: +3 days free premium on signup
+- Unique codes: SNIPE-XXXXXX format
+- Stacks with existing subscription time
+- Stats tracking (total referrals, days earned)
 
 ## Features
-
-### Auth System (JWT)
-- Email/password registration & login with bcrypt + brute force protection
-- Guest mode for unauthenticated browsing
-- Admin auto-premium on startup
-
-### Real Solana RPC (Helius)
-- Live on-chain safety audits (mint/freeze authority, holder concentration)
-- Real wallet balance checking
-- Token supply and decimals from chain
-
-### Free vs Premium Tiers
-| Feature | Free | Premium |
-|---------|------|---------|
-| Wallets | 1 | 10 |
-| Scan Interval | 30s | 5s |
-| Trading Mode | Paper Only | Paper + Live |
-| Push Alerts | No | Yes |
-| Max Positions | 2 | 20 |
-
-### Multi-Wallet (Premium)
-- Up to 10 Solana wallets per user
-- Real SOL balance fetching per wallet
-- Private key validation via solders
-
-### Screens
-1. **Auth** — Login/Register with alien theme + guest skip
-2. **Dashboard (HQ)** — Bot control, stats, wallet balance, PRO badge
-3. **Scanner** — Token detection feed with safety audit drilldown
-4. **Portfolio** — Open/closed positions, P&L tracking
-5. **Premium** — Plan cards, SOL payment flow with copy-to-clipboard, verify button
-6. **Config** — Admin wallet management, bot settings, safety filters, platform toggles
-7. **Logs** — Terminal-style activity log
+- JWT Auth with bcrypt + brute force protection + guest mode
+- Real Solana RPC via Helius (safety audits, wallet balance)
+- Admin payment wallet management (add/switch/delete)
+- Multi-wallet support (10 for premium, 1 for free)
+- 6 tabs: HQ, Scanner, Portfolio, Premium, Config, Logs
+- Dark alien theme (black #030206, purple #9D4CDD, green #39FF14)
 
 ## Tech Stack
-- Frontend: Expo SDK 54, React Native, expo-router, lucide-react-native, expo-clipboard
+- Frontend: Expo SDK 54, React Native, expo-router, expo-clipboard
 - Backend: FastAPI, Motor, bcrypt, PyJWT, httpx, solders
 - Database: MongoDB
+- Payments: Stripe (live) + SOL direct transfer
 - Blockchain: Helius RPC (Solana mainnet)
-- Payments: SOL direct transfer + Stripe (placeholder)
