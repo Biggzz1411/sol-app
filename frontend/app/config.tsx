@@ -395,6 +395,7 @@ export default function ConfigScreen() {
           {/* Sell Settings */}
           <Text style={styles.sectionTitle}>SELL SETTINGS</Text>
           <View style={styles.card}>
+            <ToggleRow label="Auto Buy" value={config.auto_buy} onChange={(v) => updateField('auto_buy', v)} testId="config-auto-buy" />
             <ToggleRow label="Auto Sell" value={config.auto_sell} onChange={(v) => updateField('auto_sell', v)} testId="config-auto-sell" />
             <NumberInput label="Take Profit 1 (%)" value={config.take_profit_pct1} onChange={(v) => updateField('take_profit_pct1', v)} step={10} isInt testId="config-tp1" />
             <NumberInput label="Take Profit 2 (%)" value={config.take_profit_pct2} onChange={(v) => updateField('take_profit_pct2', v)} step={50} isInt testId="config-tp2" />

@@ -14,8 +14,8 @@ from solders.transaction import VersionedTransaction
 
 logger = logging.getLogger(__name__)
 
-JUPITER_QUOTE_URL = "https://quote-api.jup.ag/v6/quote"
-JUPITER_SWAP_URL = "https://quote-api.jup.ag/v6/swap"
+JUPITER_QUOTE_URL = "https://api.jup.ag/swap/v1/quote"
+JUPITER_SWAP_URL = "https://api.jup.ag/swap/v1/swap"
 SOL_MINT = "So11111111111111111111111111111111111111112"
 
 
@@ -50,8 +50,6 @@ async def get_jupiter_quote(
             "outputMint": output_mint,
             "amount": str(amount_lamports),
             "slippageBps": slippage_bps,
-            "onlyDirectRoutes": "false",
-            "asLegacyTransaction": "false",
         }
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.get(JUPITER_QUOTE_URL, params=params)
@@ -95,7 +93,13 @@ async def execute_swap(
             "userPublicKey": wallet,
             "wrapAndUnwrapSol": True,
             "dynamicComputeUnitLimit": True,
-            "prioritizationFeeLamports": priority_fee_lamports,
+            "dynamicSlippage": True,
+            "prioritizationFeeLamports": {
+                "priorityLevelWithMaxLamports": {
+                    "maxLamports": priority_fee_lamports,
+                    "priorityLevel": "veryHigh",
+                }
+            },
         }
         async with httpx.AsyncClient(timeout=20.0) as client:
             resp = await client.post(JUPITER_SWAP_URL, json=swap_body)
